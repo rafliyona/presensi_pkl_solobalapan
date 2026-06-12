@@ -1,0 +1,89 @@
+-- ============================================================
+--  Supabase Schema — Sistem Presensi PKL PT KAI Solo Balapan
+--  Jalankan script ini di Supabase SQL Editor
+-- ============================================================
+
+-- ─── 1. Tabel SISWA ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.siswa (
+  id          uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  nis         text NOT NULL UNIQUE,
+  nama        text NOT NULL,
+  kelas       text NOT NULL,
+  created_at  timestamptz DEFAULT now()
+);
+
+-- Data awal 4 siswa PKL
+INSERT INTO public.siswa (nis, nama, kelas) VALUES
+  ('24.012384', 'Fadly Dava Rizkyanto',         'XI TJKT A'),
+  ('24.012393', 'Muhammad Evan Setya Nugroho',  'XI TJKT A'),
+  ('24.012397', 'Muhammad Rafli Yona Saputro',  'XI TJKT A'),
+  ('24.012403', 'Rafi Nadhif Ariyanto',         'XI TJKT A')
+ON CONFLICT (nis) DO NOTHING;
+
+-- RLS: izinkan akses publik (anon) untuk SELECT
+ALTER TABLE public.siswa ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow anon read siswa" ON public.siswa
+  FOR SELECT TO anon USING (true);
+
+-- ─── 2. Tabel ABSENSI ────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.absensi (
+  id              uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  tanggal         date NOT NULL,
+  nis             text NOT NULL REFERENCES public.siswa(nis),
+  nama            text NOT NULL,
+  kelas           text NOT NULL,
+  jam_masuk       time,
+  foto_masuk_url  text,
+  lat_masuk       double precision,
+  lng_masuk       double precision,
+  jam_pulang      time,
+  foto_pulang_url text,
+  lat_pulang      double precision,
+  lng_pulang      double precision,
+  status          text CHECK (status IN ('Tepat Waktu', 'Terlambat')),
+  created_at      timestamptz DEFAULT now(),
+  UNIQUE(nis, tanggal)
+);
+
+-- RLS: izinkan anon INSERT dan UPDATE (absen masuk & pulang)
+ALTER TABLE public.absensi ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow anon read absensi" ON public.absensi
+  FOR SELECT TO anon USING (true);
+
+CREATE POLICY "Allow anon insert absensi" ON public.absensi
+  FOR INSERT TO anon WITH CHECK (true);
+
+CREATE POLICY "Allow anon update absensi" ON public.absensi
+  FOR UPDATE TO anon USING (true) WITH CHECK (true);
+
+-- Index untuk performa
+CREATE INDEX IF NOT EXISTS idx_absensi_tanggal ON public.absensi(tanggal);
+CREATE INDEX IF NOT EXISTS idx_absensi_nis ON public.absensi(nis);
+
+-- ─── 3. Storage Bucket: selfie-absensi ───────────────────────
+-- Buat bucket via Supabase Dashboard:
+--   Storage → New bucket → Name: selfie-absensi → Public: YES
+-- Atau jalankan via SQL:
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES (
+  'selfie-absensi',
+  'selfie-absensi',
+  true,
+  5242880,  -- 5 MB limit
+  ARRAY['image/jpeg', 'image/png', 'image/webp']
+)
+ON CONFLICT (id) DO NOTHING;
+
+-- RLS untuk storage
+CREATE POLICY "Allow anon upload selfie" ON storage.objects
+  FOR INSERT TO anon WITH CHECK (bucket_id = 'selfie-absensi');
+
+CREATE POLICY "Allow public read selfie" ON storage.objects
+  FOR SELECT TO anon USING (bucket_id = 'selfie-absensi');
+
+-- ─── Selesai ─────────────────────────────────────────────────
+-- Verifikasi:
+-- SELECT * FROM public.siswa;
+-- SELECT count(*) FROM public.absensi;

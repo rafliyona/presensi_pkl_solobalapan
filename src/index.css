@@ -1,0 +1,158 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    @apply bg-slate-50 text-slate-800;
+    min-height: 100vh;
+  }
+
+  :root {
+    --kai-blue: #1a56db;
+    --kai-orange: #f97316;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-kai-blue-500 hover:bg-kai-blue-700 text-white font-semibold py-3 px-6 rounded-xl
+           transition-all duration-200 flex items-center justify-center gap-2 shadow-md
+           hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50
+           disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:hover:shadow-md;
+  }
+
+  .btn-orange {
+    @apply bg-kai-orange-500 hover:bg-kai-orange-600 text-white font-semibold py-3 px-6 rounded-xl
+           transition-all duration-200 flex items-center justify-center gap-2 shadow-md
+           hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50
+           disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:hover:shadow-md;
+  }
+
+  .btn-ghost {
+    @apply border-2 border-slate-200 hover:border-kai-blue-300 text-slate-600 hover:text-kai-blue-600
+           font-semibold py-3 px-6 rounded-xl transition-all duration-200 flex items-center
+           justify-center gap-2 hover:-translate-y-0.5 active:translate-y-0;
+  }
+
+  .card {
+    @apply bg-white rounded-2xl shadow-sm border border-slate-100 p-6;
+  }
+
+  .card-hover {
+    @apply bg-white rounded-2xl shadow-sm border border-slate-100 p-6
+           hover:shadow-md transition-shadow duration-200;
+  }
+
+  .input-field {
+    @apply w-full px-4 py-3 rounded-xl border-2 border-slate-200 bg-white
+           focus:outline-none focus:border-kai-blue-400 focus:ring-2 focus:ring-kai-blue-100
+           text-slate-800 placeholder-slate-400 transition-all duration-200;
+  }
+
+  .label {
+    @apply block text-sm font-semibold text-slate-600 mb-2;
+  }
+
+  .glass {
+    background: rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+  }
+
+  .kai-gradient {
+    background: linear-gradient(135deg, #1e3a8a 0%, #1a56db 50%, #1d4ed8 100%);
+  }
+
+  .orange-gradient {
+    background: linear-gradient(135deg, #ea580c 0%, #f97316 100%);
+  }
+
+  .status-badge-on-time {
+    @apply inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold
+           bg-emerald-100 text-emerald-700 border border-emerald-200;
+  }
+
+  .status-badge-late {
+    @apply inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold
+           bg-red-100 text-red-700 border border-red-200;
+  }
+
+  .status-badge-pending {
+    @apply inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold
+           bg-amber-100 text-amber-700 border border-amber-200;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Camera feed */
+.camera-feed {
+  border-radius: 16px;
+  overflow: hidden;
+  position: relative;
+  background: #0f172a;
+}
+
+.camera-feed video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+
+/* Table responsive */
+.table-wrapper {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Pulse ring animation for active buttons */
+.pulse-ring {
+  position: relative;
+}
+.pulse-ring::before {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: inherit;
+  border: 2px solid currentColor;
+  opacity: 0;
+  animation: pulseRing 2s ease-out infinite;
+}
+@keyframes pulseRing {
+  0% { opacity: 0.6; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.1); }
+}
+
+/* Page transitions */
+.page-enter {
+  animation: fadeIn 0.3s ease-out;
+}
+
+/* Toast custom */
+.toast-kai {
+  font-family: 'Inter', sans-serif;
+  font-size: 14px;
+  border-radius: 12px;
+}
