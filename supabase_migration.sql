@@ -87,3 +87,57 @@ CREATE POLICY "Allow public read selfie" ON storage.objects
 -- Verifikasi:
 -- SELECT * FROM public.siswa;
 -- SELECT count(*) FROM public.absensi;
+
+-- ─── 4. Sistem Hari Libur / Piket ─────────────────────────────
+CREATE TABLE IF NOT EXISTS public.hari_libur (
+  id          uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  tanggal     date NOT NULL UNIQUE,
+  keterangan  text NOT NULL
+);
+
+ALTER TABLE public.hari_libur ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow anon read hari_libur" ON public.hari_libur
+  FOR SELECT TO anon USING (true);
+
+CREATE POLICY "Allow admin manage hari_libur" ON public.hari_libur
+  FOR ALL TO anon USING (true);
+
+ALTER TABLE public.absensi ADD COLUMN IF NOT EXISTS jenis text DEFAULT 'hadir'
+  CHECK (jenis IN ('hadir', 'piket', 'izin', 'sakit', 'libur', 'acara'));
+
+-- ─── 5. Tabel PENGAJUAN KETIDAKHADIRAN ───────────────────────────────────────
+-- Siswa mengajukan ketidakhadiran (izin/sakit/acara/piket) untuk hari tertentu.
+-- Admin dapat memverifikasi (setujui / tolak) setiap pengajuan.
+CREATE TABLE IF NOT EXISTS public.pengajuan_ketidakhadiran (
+  id                  uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  nis                 text NOT NULL REFERENCES public.siswa(nis),
+  nama                text NOT NULL,
+  kelas               text NOT NULL,
+  tanggal             date NOT NULL,
+  jenis               text NOT NULL CHECK (jenis IN ('izin', 'sakit', 'acara', 'piket')),
+  keterangan          text,
+  status_verifikasi   text NOT NULL DEFAULT 'pending'
+                        CHECK (status_verifikasi IN ('pending', 'disetujui', 'ditolak')),
+  catatan_admin       text,
+  created_at          timestamptz DEFAULT now(),
+  UNIQUE(nis, tanggal)
+);
+
+-- RLS: anon dapat SELECT, INSERT (siswa); UPDATE (admin melalui anon key)
+ALTER TABLE public.pengajuan_ketidakhadiran ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow anon read pengajuan" ON public.pengajuan_ketidakhadiran
+  FOR SELECT TO anon USING (true);
+
+CREATE POLICY "Allow anon insert pengajuan" ON public.pengajuan_ketidakhadiran
+  FOR INSERT TO anon WITH CHECK (true);
+
+CREATE POLICY "Allow anon update pengajuan" ON public.pengajuan_ketidakhadiran
+  FOR UPDATE TO anon USING (true) WITH CHECK (true);
+
+-- Index performa
+CREATE INDEX IF NOT EXISTS idx_pengajuan_tanggal ON public.pengajuan_ketidakhadiran(tanggal);
+CREATE INDEX IF NOT EXISTS idx_pengajuan_nis     ON public.pengajuan_ketidakhadiran(nis);
+CREATE INDEX IF NOT EXISTS idx_pengajuan_status  ON public.pengajuan_ketidakhadiran(status_verifikasi);
+

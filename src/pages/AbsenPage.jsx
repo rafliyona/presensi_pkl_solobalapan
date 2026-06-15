@@ -3,7 +3,7 @@ import { LogIn, LogOut, Clock, CheckCircle, Camera, MapPin,
          AlertCircle, Info, Zap, ZapOff } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useApp } from '../context/AppContext'
-import { createAbsensiMasuk, updateAbsensiPulang, uploadSelfie } from '../utils/supabase'
+import { supabase, createAbsensiMasuk, updateAbsensiPulang, uploadSelfie } from '../utils/supabase'
 import { getTodayString, getTimeString, getNowWIB, formatDateID,
          isLate, isPulangTime, getCountdownTo16, generateSelfieFilename } from '../utils/timeUtils'
 import CameraCapture from '../components/CameraCapture'
@@ -75,6 +75,26 @@ export default function AbsenPage() {
   const [capturedLocation, setCapturedLocation] = useState(null)
   const [submitting, setSubmitting] = useState(false)
   const [canPulang, setCanPulang] = useState(isPulangTime(isDemoMode))
+  const [holidayInfo, setHolidayInfo] = useState(null)
+
+  // Cek hari libur saat komponen dimuat
+  useEffect(() => {
+    const checkHoliday = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('hari_libur')
+          .select('keterangan')
+          .eq('tanggal', getTodayString())
+          .maybeSingle()
+        if (data) {
+          setHolidayInfo(data.keterangan)
+        }
+      } catch (err) {
+        console.error('Gagal memuat info hari libur:', err)
+      }
+    }
+    checkHoliday()
+  }, [])
 
   // Update canPulang every second
   useEffect(() => {
@@ -133,7 +153,7 @@ export default function AbsenPage() {
       }
 
       if (absenType === 'masuk') {
-        const status = isLate(jamStr) ? 'Terlambat' : 'Tepat Waktu'
+        const status = holidayInfo ? 'Tepat Waktu' : (isLate(jamStr) ? 'Terlambat' : 'Tepat Waktu')
         await createAbsensiMasuk({
           nis: session.nis,
           nama: session.nama,
@@ -144,6 +164,7 @@ export default function AbsenPage() {
           lat_masuk: capturedLocation?.lat ?? null,
           lng_masuk: capturedLocation?.lng ?? null,
           status,
+          jenis: holidayInfo ? 'piket' : 'hadir',
         })
         toast.success(
           `Absen masuk berhasil! Status: ${status}`,
@@ -173,12 +194,52 @@ export default function AbsenPage() {
 
   // Determine pulang button state
   const pulangDisabled = !hasMasuk || hasPulang || !canPulang
+  const { todayPengajuan } = useApp()
+  const [showIzinModal, setShowIzinModal] = useState(false)
+  const [izinType, setIzinType] = useState('izin') // 'izin' | 'sakit' | 'acara' | 'piket'
+  const [izinKeterangan, setIzinKeterangan] = useState('')
+  const [submittingIzin, setSubmittingIzin] = useState(false)
+
+  const handleIzinSubmit = async (e) => {
+    e.preventDefault()
+    if (!session) return
+    setSubmittingIzin(true)
+    try {
+      const { createPengajuan } = await import('../utils/supabase')
+      await createPengajuan({
+        nis: session.nis,
+        nama: session.nama,
+        kelas: session.kelas,
+        tanggal: getTodayString(),
+        jenis: izinType,
+        keterangan: izinKeterangan
+      })
+      toast.success('Pengajuan ketidakhadiran berhasil dikirim!')
+      setShowIzinModal(false)
+      setIzinKeterangan('')
+      refreshTodayRecord()
+    } catch (err) {
+      console.error(err)
+      toast.error('Gagal mengirim pengajuan ketidakhadiran')
+    } finally {
+      setSubmittingIzin(false)
+    }
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
       <Navbar />
 
       <main className="flex-1 max-w-lg mx-auto w-full px-4 py-6 flex flex-col gap-5">
+        {/* Banner Hari Libur / Piket */}
+        {holidayInfo && (
+          <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 rounded-xl p-4 flex items-start gap-3 animate-fade-in shadow-sm">
+            <Info className="text-yellow-500 mt-0.5 flex-shrink-0" size={16} />
+            <div className="text-sm">
+              <span className="font-bold text-yellow-900">Hari Libur / Piket:</span> {holidayInfo}. Anda berada dalam mode piket (tidak dihitung terlambat).
+            </div>
+          </div>
+        )}
         {/* Clock card */}
         <div className="card shadow-sm animate-fade-in">
           <ClockDisplay />
@@ -196,14 +257,18 @@ export default function AbsenPage() {
               <div className="font-semibold mb-0.5">Pulang</div>
               {hasPulang ? todayRecord.jam_pulang?.substring(0, 5) : '—'}
             </div>
-            {todayRecord?.status && (
+            {(todayRecord?.status || todayPengajuan) && (
               <div className={`flex-1 rounded-xl p-3 text-center text-xs font-medium border ${
-                todayRecord.status === 'Tepat Waktu'
+                todayRecord?.status === 'Tepat Waktu' || todayPengajuan?.status_verifikasi === 'disetujui'
                   ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                  : todayPengajuan?.status_verifikasi === 'pending'
+                  ? 'bg-amber-50 border-amber-200 text-amber-700'
                   : 'bg-red-50 border-red-200 text-red-700'
               }`}>
                 <div className="font-semibold mb-0.5">Status</div>
-                {todayRecord.status}
+                {todayPengajuan ? (
+                  <span className="capitalize">{todayPengajuan.jenis} ({todayPengajuan.status_verifikasi})</span>
+                ) : todayRecord.status}
               </div>
             )}
           </div>
@@ -247,97 +312,134 @@ export default function AbsenPage() {
         {/* Main action buttons — only show when idle */}
         {step === STEPS.IDLE && (
           <div className="grid grid-cols-1 gap-4 animate-slide-up">
-            {/* ABSEN MASUK */}
-            <button
-              id="btn-absen-masuk"
-              onClick={() => startAbsen('masuk')}
-              disabled={hasMasuk}
-              className={`relative overflow-hidden rounded-2xl p-5 text-left transition-all duration-200 ${
-                hasMasuk
-                  ? 'bg-emerald-50 border-2 border-emerald-200 cursor-default'
-                  : 'bg-gradient-to-br from-kai-blue-500 to-kai-blue-700 text-white shadow-lg hover:shadow-xl hover:-translate-y-1 active:translate-y-0 border-2 border-transparent'
-              }`}
-            >
-              <div className="absolute top-0 right-0 w-24 h-24 rounded-full bg-white/10 -translate-y-8 translate-x-8" />
-              <div className={`w-10 h-10 rounded-xl flex items-center justify-center mb-3 ${
-                hasMasuk ? 'bg-emerald-100' : 'bg-white/20'
+            {/* Tampilkan Status Pengajuan Ketidakhadiran jika ada */}
+            {todayPengajuan ? (
+              <div className={`rounded-2xl p-5 border ${
+                todayPengajuan.status_verifikasi === 'disetujui'
+                  ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                  : todayPengajuan.status_verifikasi === 'ditolak'
+                  ? 'bg-red-50 border-red-200 text-red-800'
+                  : 'bg-amber-50 border-amber-200 text-amber-800'
               }`}>
-                {hasMasuk ? (
-                  <CheckCircle className="text-emerald-600" size={22} />
-                ) : (
-                  <LogIn className="text-white" size={22} />
+                <h3 className="font-bold text-lg flex items-center gap-2">
+                  <span>📝</span>
+                  Pengajuan {todayPengajuan.jenis === 'izin' ? 'Izin' : todayPengajuan.jenis === 'sakit' ? 'Sakit' : todayPengajuan.jenis === 'acara' ? 'Ada Acara' : 'Libur'}
+                </h3>
+                <p className="text-sm mt-1 text-slate-600">
+                  Status: <strong className="capitalize">{todayPengajuan.status_verifikasi}</strong>
+                </p>
+                {todayPengajuan.keterangan && (
+                  <p className="text-xs mt-2 italic bg-white/50 p-2.5 rounded-lg">
+                    "{todayPengajuan.keterangan}"
+                  </p>
                 )}
               </div>
-              <p className={`font-bold text-lg ${hasMasuk ? 'text-emerald-700' : 'text-white'}`}>
-                {hasMasuk ? 'Sudah Absen Masuk' : 'Absen Masuk'}
-              </p>
-              <p className={`text-sm mt-0.5 ${hasMasuk ? 'text-emerald-600' : 'text-kai-blue-100'}`}>
-                {hasMasuk
-                  ? `Dicatat pukul ${todayRecord.jam_masuk?.substring(0, 5)} WIB`
-                  : 'Klik untuk absen kehadiran'
-                }
-              </p>
-              <div className={`flex items-center gap-1.5 mt-3 text-xs font-medium ${
-                hasMasuk ? 'text-emerald-600' : 'text-kai-blue-100'
-              }`}>
-                <Camera size={12} />
-                <span>Foto Selfie</span>
-                <span>+</span>
-                <MapPin size={12} />
-                <span>GPS</span>
-              </div>
-            </button>
+            ) : (
+              <>
+                {/* ABSEN MASUK */}
+                <button
+                  id="btn-absen-masuk"
+                  onClick={() => startAbsen('masuk')}
+                  disabled={hasMasuk}
+                  className={`relative overflow-hidden rounded-2xl p-5 text-left transition-all duration-200 ${
+                    hasMasuk
+                      ? 'bg-emerald-50 border-2 border-emerald-200 cursor-default'
+                      : 'bg-gradient-to-br from-kai-blue-500 to-kai-blue-700 text-white shadow-lg hover:shadow-xl hover:-translate-y-1 active:translate-y-0 border-2 border-transparent'
+                  }`}
+                >
+                  <div className="absolute top-0 right-0 w-24 h-24 rounded-full bg-white/10 -translate-y-8 translate-x-8" />
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center mb-3 ${
+                    hasMasuk ? 'bg-emerald-100' : 'bg-white/20'
+                  }`}>
+                    {hasMasuk ? (
+                      <CheckCircle className="text-emerald-600" size={22} />
+                    ) : (
+                      <LogIn className="text-white" size={22} />
+                    )}
+                  </div>
+                  <p className={`font-bold text-lg ${hasMasuk ? 'text-emerald-700' : 'text-white'}`}>
+                    {hasMasuk ? 'Sudah Absen Masuk' : 'Absen Masuk'}
+                  </p>
+                  <p className={`text-sm mt-0.5 ${hasMasuk ? 'text-emerald-600' : 'text-kai-blue-100'}`}>
+                    {hasMasuk
+                      ? `Dicatat pukul ${todayRecord.jam_masuk?.substring(0, 5)} WIB`
+                      : 'Klik untuk absen kehadiran'
+                    }
+                  </p>
+                  <div className={`flex items-center gap-1.5 mt-3 text-xs font-medium ${
+                    hasMasuk ? 'text-emerald-600' : 'text-kai-blue-100'
+                  }`}>
+                    <Camera size={12} />
+                    <span>Foto Selfie</span>
+                    <span>+</span>
+                    <MapPin size={12} />
+                    <span>GPS</span>
+                  </div>
+                </button>
 
-            {/* ABSEN PULANG */}
-            <button
-              id="btn-absen-pulang"
-              onClick={() => startAbsen('pulang')}
-              disabled={pulangDisabled}
-              className={`relative overflow-hidden rounded-2xl p-5 text-left transition-all duration-200 ${
-                hasPulang
-                  ? 'bg-emerald-50 border-2 border-emerald-200 cursor-default'
-                  : pulangDisabled
-                    ? 'bg-slate-100 border-2 border-slate-200 cursor-not-allowed opacity-75'
-                    : 'orange-gradient text-white shadow-lg hover:shadow-xl hover:-translate-y-1 active:translate-y-0 border-2 border-transparent'
-              }`}
-            >
-              <div className="absolute top-0 right-0 w-24 h-24 rounded-full bg-white/10 -translate-y-8 translate-x-8" />
-              <div className={`w-10 h-10 rounded-xl flex items-center justify-center mb-3 ${
-                hasPulang ? 'bg-emerald-100' : pulangDisabled ? 'bg-slate-200' : 'bg-white/20'
-              }`}>
-                {hasPulang ? (
-                  <CheckCircle className="text-emerald-600" size={22} />
-                ) : (
-                  <LogOut className={pulangDisabled ? 'text-slate-400' : 'text-white'} size={22} />
+                {/* ABSEN PULANG */}
+                <button
+                  id="btn-absen-pulang"
+                  onClick={() => startAbsen('pulang')}
+                  disabled={pulangDisabled}
+                  className={`relative overflow-hidden rounded-2xl p-5 text-left transition-all duration-200 ${
+                    hasPulang
+                      ? 'bg-emerald-50 border-2 border-emerald-200 cursor-default'
+                      : pulangDisabled
+                        ? 'bg-slate-100 border-2 border-slate-200 cursor-not-allowed opacity-75'
+                        : 'orange-gradient text-white shadow-lg hover:shadow-xl hover:-translate-y-1 active:translate-y-0 border-2 border-transparent'
+                  }`}
+                >
+                  <div className="absolute top-0 right-0 w-24 h-24 rounded-full bg-white/10 -translate-y-8 translate-x-8" />
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center mb-3 ${
+                    hasPulang ? 'bg-emerald-100' : pulangDisabled ? 'bg-slate-200' : 'bg-white/20'
+                  }`}>
+                    {hasPulang ? (
+                      <CheckCircle className="text-emerald-600" size={22} />
+                    ) : (
+                      <LogOut className={pulangDisabled ? 'text-slate-400' : 'text-white'} size={22} />
+                    )}
+                  </div>
+                  <p className={`font-bold text-lg ${
+                    hasPulang ? 'text-emerald-700' : pulangDisabled ? 'text-slate-500' : 'text-white'
+                  }`}>
+                    {hasPulang ? 'Sudah Absen Pulang' : 'Absen Pulang'}
+                  </p>
+                  <p className={`text-sm mt-0.5 ${
+                    hasPulang ? 'text-emerald-600' : pulangDisabled ? 'text-slate-400' : 'text-orange-100'
+                  }`}>
+                    {hasPulang
+                      ? `Dicatat pukul ${todayRecord.jam_pulang?.substring(0, 5)} WIB`
+                      : !hasMasuk
+                        ? 'Harap absen masuk terlebih dahulu'
+                        : !canPulang
+                          ? 'Tersedia mulai pukul 16:00 WIB'
+                          : 'Klik untuk absen kepulangan'
+                    }
+                  </p>
+                  {!hasPulang && !pulangDisabled && (
+                    <div className="flex items-center gap-1.5 mt-3 text-xs font-medium text-orange-100">
+                      <Camera size={12} />
+                      <span>Foto Selfie</span>
+                      <span>+</span>
+                      <MapPin size={12} />
+                      <span>GPS</span>
+                    </div>
+                  )}
+                </button>
+
+                {/* TOMBOL PENGAJUAN KETIDAKHADIRAN */}
+                {!hasMasuk && (
+                  <button
+                    onClick={() => setShowIzinModal(true)}
+                    className="w-full py-4 bg-white border-2 border-dashed border-slate-300 hover:border-kai-blue-500 rounded-2xl flex items-center justify-center gap-2 text-slate-600 hover:text-kai-blue-600 font-medium transition-all"
+                  >
+                    <span>📝</span>
+                    Ajukan Ketidakhadiran (Izin / Sakit / Acara / Libur)
+                  </button>
                 )}
-              </div>
-              <p className={`font-bold text-lg ${
-                hasPulang ? 'text-emerald-700' : pulangDisabled ? 'text-slate-500' : 'text-white'
-              }`}>
-                {hasPulang ? 'Sudah Absen Pulang' : 'Absen Pulang'}
-              </p>
-              <p className={`text-sm mt-0.5 ${
-                hasPulang ? 'text-emerald-600' : pulangDisabled ? 'text-slate-400' : 'text-orange-100'
-              }`}>
-                {hasPulang
-                  ? `Dicatat pukul ${todayRecord.jam_pulang?.substring(0, 5)} WIB`
-                  : !hasMasuk
-                    ? 'Harap absen masuk terlebih dahulu'
-                    : !canPulang
-                      ? 'Tersedia mulai pukul 16:00 WIB'
-                      : 'Klik untuk absen kepulangan'
-                }
-              </p>
-              {!hasPulang && !pulangDisabled && (
-                <div className="flex items-center gap-1.5 mt-3 text-xs font-medium text-orange-100">
-                  <Camera size={12} />
-                  <span>Foto Selfie</span>
-                  <span>+</span>
-                  <MapPin size={12} />
-                  <span>GPS</span>
-                </div>
-              )}
-            </button>
+              </>
+            )}
           </div>
         )}
 
@@ -497,6 +599,78 @@ export default function AbsenPage() {
           </div>
         </div>
       </main>
+
+      {/* Modal Izin */}
+      {showIzinModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl animate-scale-up" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+              <span>📝</span> Pengajuan Ketidakhadiran
+            </h3>
+            
+            <form onSubmit={handleIzinSubmit} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 mb-2">JENIS KETIDAKHADIRAN</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { val: 'izin', lbl: 'Izin', desc: 'Ada keperluan penting' },
+                    { val: 'sakit', lbl: 'Sakit', desc: 'Kondisi kurang sehat' },
+                    { val: 'acara', lbl: 'Ada Acara', desc: 'Acara sekolah/resmi' },
+                    { val: 'piket', lbl: 'Libur', desc: 'Hari libur / non-efektif' },
+                  ].map((item) => (
+                    <button
+                      key={item.val}
+                      type="button"
+                      onClick={() => setIzinType(item.val)}
+                      className={`p-3 rounded-xl border text-left transition-all ${
+                        izinType === item.val
+                          ? 'border-kai-blue-500 bg-kai-blue-50/50 ring-2 ring-kai-blue-500/20'
+                          : 'border-slate-200 hover:bg-slate-50'
+                      }`}
+                    >
+                      <div className="font-bold text-sm text-slate-800">{item.lbl}</div>
+                      <div className="text-[10px] text-slate-400 mt-0.5">{item.desc}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 mb-1">KETERANGAN / ALASAN</label>
+                <textarea
+                  required
+                  rows={3}
+                  value={izinKeterangan}
+                  onChange={e => setIzinKeterangan(e.target.value)}
+                  placeholder="Masukkan alasan ketidakhadiran Anda secara detail..."
+                  className="w-full rounded-xl border border-slate-200 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-kai-blue-500/20 focus:border-kai-blue-500"
+                />
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowIzinModal(false)}
+                  className="btn-ghost flex-1 py-2.5 text-sm"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingIzin}
+                  className="btn-primary flex-1 py-2.5 text-sm"
+                >
+                  {submittingIzin ? (
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    'Kirim Pengajuan'
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

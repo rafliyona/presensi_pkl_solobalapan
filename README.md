@@ -20,7 +20,7 @@ Buka di browser: http://localhost:5173
 
 **PENTING:** Jalankan script SQL berikut di Supabase SQL Editor sebelum menjalankan aplikasi:
 
-1. Buka [Supabase Dashboard](https://supabase.com/dashboard/project/iuosuvlzwqngzutetzkt)
+1. Buka [Supabase Dashboard](https://supabase.com/dashboard) → pilih project Anda
 2. Masuk ke **SQL Editor**
 3. Paste & jalankan isi file `supabase_migration.sql`
 4. Verifikasi: `SELECT * FROM public.siswa;` — harus menampilkan 4 baris data
@@ -69,8 +69,10 @@ src/
 ## 🔑 Akun Admin
 
 - **Username:** `admin`
-- **Password:** `kai2024`
+- **Password:** _(lihat di konfigurasi server / tanya pengelola)_
 - **Route:** `/admin`
+
+> ⚠️ **Jangan simpan password di README untuk keamanan.**
 
 ---
 
@@ -88,10 +90,14 @@ src/
 
 ## 🌐 Environment Variables
 
+Salin file `.env.example` menjadi `.env`, lalu isi dengan nilai dari Supabase Dashboard Anda:
+
 ```env
-VITE_SUPABASE_URL=https://iuosuvlzwqngzutetzkt.supabase.co
-VITE_SUPABASE_ANON_KEY=eyJ...
+VITE_SUPABASE_URL=https://<your-project-id>.supabase.co
+VITE_SUPABASE_ANON_KEY=<your-anon-key>
 ```
+
+> ⚠️ **Jangan commit file `.env` ke repository!** File ini sudah ada di `.gitignore`.
 
 ---
 

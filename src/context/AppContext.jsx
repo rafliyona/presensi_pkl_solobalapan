@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react'
-import { getSiswa, getAbsensiByNISAndDate } from '../utils/supabase'
+import { getSiswa, getAbsensiByNISAndDate, getPengajuanByNISAndDate } from '../utils/supabase'
 import { getTodayString } from '../utils/timeUtils'
 
 const AppContext = createContext(null)
@@ -10,6 +10,7 @@ export function AppProvider({ children }) {
   const [session, setSession] = useState(null)      // { role, nis, nama, kelas }
   const [siswaList, setSiswaList] = useState([])
   const [todayRecord, setTodayRecord] = useState(null) // absensi hari ini
+  const [todayPengajuan, setTodayPengajuan] = useState(null) // pengajuan ketidakhadiran hari ini
   const [loadingSiswa, setLoadingSiswa] = useState(true)
   const [isDemoMode, setIsDemoMode] = useState(false)
 
@@ -45,23 +46,31 @@ export function AppProvider({ children }) {
     load()
   }, [])
 
-  // Load today's absensi when session changes
-  const loadTodayRecord = useCallback(async () => {
+  // Load today's absensi & pengajuan when session changes
+  const loadTodayData = useCallback(async () => {
     if (!session || session.role !== 'siswa') {
       setTodayRecord(null)
+      setTodayPengajuan(null)
       return
     }
+    const today = getTodayString()
     try {
-      const record = await getAbsensiByNISAndDate(session.nis, getTodayString())
+      const [record, pengajuan] = await Promise.all([
+        getAbsensiByNISAndDate(session.nis, today),
+        getPengajuanByNISAndDate(session.nis, today)
+      ])
       setTodayRecord(record)
-    } catch {
+      setTodayPengajuan(pengajuan)
+    } catch (err) {
+      console.error('Failed to load today data:', err)
       setTodayRecord(null)
+      setTodayPengajuan(null)
     }
   }, [session])
 
   useEffect(() => {
-    loadTodayRecord()
-  }, [loadTodayRecord])
+    loadTodayData()
+  }, [loadTodayData])
 
   const login = (userData) => {
     setSession(userData)
@@ -71,10 +80,11 @@ export function AppProvider({ children }) {
   const logout = () => {
     setSession(null)
     setTodayRecord(null)
+    setTodayPengajuan(null)
     localStorage.removeItem(SESSION_KEY)
   }
 
-  const refreshTodayRecord = () => loadTodayRecord()
+  const refreshTodayRecord = () => loadTodayData()
 
   return (
     <AppContext.Provider value={{
@@ -82,6 +92,7 @@ export function AppProvider({ children }) {
       siswaList,
       loadingSiswa,
       todayRecord,
+      todayPengajuan,
       isDemoMode,
       setIsDemoMode,
       login,

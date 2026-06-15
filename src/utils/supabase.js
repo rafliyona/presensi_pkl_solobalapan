@@ -43,10 +43,10 @@ export const getAbsensiByNISAndDate = async (nis, tanggal) => {
   return data
 }
 
-export const createAbsensiMasuk = async ({ nis, nama, kelas, tanggal, jam_masuk, foto_masuk_url, lat_masuk, lng_masuk, status }) => {
+export const createAbsensiMasuk = async ({ nis, nama, kelas, tanggal, jam_masuk, foto_masuk_url, lat_masuk, lng_masuk, status, jenis }) => {
   const { data, error } = await supabase
     .from('absensi')
-    .insert([{ nis, nama, kelas, tanggal, jam_masuk, foto_masuk_url, lat_masuk, lng_masuk, status }])
+    .insert([{ nis, nama, kelas, tanggal, jam_masuk, foto_masuk_url, lat_masuk, lng_masuk, status, jenis }])
     .select()
     .single()
   if (error) throw error
@@ -112,3 +112,101 @@ export const uploadSelfie = async (base64DataUrl, fileName) => {
 
   return urlData.publicUrl
 }
+
+// ─── HARI LIBUR / PIKET ────────────────────────────────────────────────────────
+
+export const getHariLibur = async () => {
+  const { data, error } = await supabase
+    .from('hari_libur')
+    .select('*')
+    .order('tanggal', { ascending: true })
+  if (error) throw error
+  return data
+}
+
+export const addHariLibur = async ({ tanggal, keterangan }) => {
+  const { data, error } = await supabase
+    .from('hari_libur')
+    .insert([{ tanggal, keterangan }])
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+
+export const deleteHariLibur = async (id) => {
+  const { error } = await supabase
+    .from('hari_libur')
+    .delete()
+    .eq('id', id)
+  if (error) throw error
+  return true
+}
+
+export const updateAbsensiJenis = async (id, jenis) => {
+  const { data, error } = await supabase
+    .from('absensi')
+    .update({ jenis })
+    .eq('id', id)
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+
+// ─── PENGAJUAN KETIDAKHADIRAN ───────────────────────────────────────────────
+
+export const getPengajuanByNISAndDate = async (nis, tanggal) => {
+  const { data, error } = await supabase
+    .from('pengajuan_ketidakhadiran')
+    .select('*')
+    .eq('nis', nis)
+    .eq('tanggal', tanggal)
+    .maybeSingle()
+  if (error) throw error
+  return data
+}
+
+export const createPengajuan = async ({ nis, nama, kelas, tanggal, jenis, keterangan }) => {
+  const { data, error } = await supabase
+    .from('pengajuan_ketidakhadiran')
+    .insert([{ nis, nama, kelas, tanggal, jenis, keterangan }])
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+
+export const getAllPengajuan = async (filters = {}) => {
+  let query = supabase
+    .from('pengajuan_ketidakhadiran')
+    .select('*')
+    .order('tanggal', { ascending: false })
+    .order('created_at', { ascending: false })
+
+  if (filters.tanggal) {
+    query = query.eq('tanggal', filters.tanggal)
+  }
+  if (filters.search) {
+    query = query.or(`nama.ilike.%${filters.search}%,nis.ilike.%${filters.search}%`)
+  }
+  if (filters.status_verifikasi) {
+    query = query.eq('status_verifikasi', filters.status_verifikasi)
+  }
+
+  const { data, error } = await query
+  if (error) throw error
+  return data
+}
+
+export const updateStatusPengajuan = async (id, status_verifikasi) => {
+  const { data, error } = await supabase
+    .from('pengajuan_ketidakhadiran')
+    .update({ status_verifikasi })
+    .eq('id', id)
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+

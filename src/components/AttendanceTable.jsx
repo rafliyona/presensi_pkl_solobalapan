@@ -67,7 +67,7 @@ function GPSLink({ lat, lng }) {
   )
 }
 
-export default function AttendanceTable({ data, loading }) {
+export default function AttendanceTable({ data, loading, onJenisChange }) {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-40">
@@ -106,6 +106,7 @@ export default function AttendanceTable({ data, loading }) {
             <th className="text-center px-4 py-3 font-semibold text-xs uppercase tracking-wide">Jam Pulang</th>
             <th className="text-center px-4 py-3 font-semibold text-xs uppercase tracking-wide">Foto Pulang</th>
             <th className="text-center px-4 py-3 font-semibold text-xs uppercase tracking-wide">GPS Pulang</th>
+            <th className="text-center px-4 py-3 font-semibold text-xs uppercase tracking-wide">Jenis</th>
             <th className="text-center px-4 py-3 font-semibold text-xs uppercase tracking-wide rounded-tr-xl">Status</th>
           </tr>
         </thead>
@@ -151,6 +152,23 @@ export default function AttendanceTable({ data, loading }) {
               </td>
               <td className="px-4 py-3 text-center">
                 <GPSLink lat={row.lat_pulang} lng={row.lng_pulang} />
+              </td>
+              <td className="px-4 py-3 text-center">
+                {onJenisChange ? (
+                  <select
+                    value={row.jenis || 'hadir'}
+                    onChange={(e) => onJenisChange(row.id, e.target.value)}
+                    className="text-xs font-semibold rounded-lg border border-slate-200 px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-kai-blue-400 text-slate-700"
+                  >
+                    <option value="hadir">Hadir</option>
+                    <option value="piket">Piket</option>
+                    <option value="izin">Izin</option>
+                    <option value="sakit">Sakit</option>
+                    <option value="libur">Libur</option>
+                  </select>
+                ) : (
+                  <StatusBadge jenis={row.jenis || 'hadir'} />
+                )}
               </td>
               <td className="px-4 py-3 text-center">
                 <StatusBadge status={row.jam_pulang ? row.status : 'Belum Pulang'} />
