@@ -196,7 +196,7 @@ export default function AbsenPage() {
   const pulangDisabled = !hasMasuk || hasPulang || !canPulang
   const { todayPengajuan } = useApp()
   const [showIzinModal, setShowIzinModal] = useState(false)
-  const [izinType, setIzinType] = useState('izin') // 'izin' | 'sakit' | 'acara' | 'piket'
+  const [izinType, setIzinType] = useState('izin') // 'izin' | 'sakit' | 'cuti' | 'piket'
   const [izinKeterangan, setIzinKeterangan] = useState('')
   const [submittingIzin, setSubmittingIzin] = useState(false)
 
@@ -323,7 +323,7 @@ export default function AbsenPage() {
               }`}>
                 <h3 className="font-bold text-lg flex items-center gap-2">
                   <span>📝</span>
-                  Pengajuan {todayPengajuan.jenis === 'izin' ? 'Izin' : todayPengajuan.jenis === 'sakit' ? 'Sakit' : todayPengajuan.jenis === 'acara' ? 'Ada Acara' : 'Libur'}
+                  Pengajuan {todayPengajuan.jenis === 'izin' ? 'Izin' : todayPengajuan.jenis === 'sakit' ? 'Sakit' : todayPengajuan.jenis === 'cuti' ? 'Cuti' : 'Libur'}
                 </h3>
                 <p className="text-sm mt-1 text-slate-600">
                   Status: <strong className="capitalize">{todayPengajuan.status_verifikasi}</strong>
@@ -435,7 +435,7 @@ export default function AbsenPage() {
                     className="w-full py-4 bg-white border-2 border-dashed border-slate-300 hover:border-kai-blue-500 rounded-2xl flex items-center justify-center gap-2 text-slate-600 hover:text-kai-blue-600 font-medium transition-all"
                   >
                     <span>📝</span>
-                    Ajukan Ketidakhadiran (Izin / Sakit / Acara / Libur)
+                    Ajukan Ketidakhadiran (Izin / Sakit / Cuti / Libur)
                   </button>
                 )}
               </>
@@ -615,7 +615,7 @@ export default function AbsenPage() {
                   {[
                     { val: 'izin', lbl: 'Izin', desc: 'Ada keperluan penting' },
                     { val: 'sakit', lbl: 'Sakit', desc: 'Kondisi kurang sehat' },
-                    { val: 'acara', lbl: 'Ada Acara', desc: 'Acara sekolah/resmi' },
+                    { val: 'cuti', lbl: 'Cuti', desc: 'Cuti / keperluan pribadi' },
                     { val: 'piket', lbl: 'Libur', desc: 'Hari libur / non-efektif' },
                   ].map((item) => (
                     <button

@@ -8,7 +8,7 @@ export default function StatusBadge({ status, jenis }) {
       izin: 'bg-blue-100 text-blue-700 border-blue-200',
       sakit: 'bg-orange-100 text-orange-700 border-orange-200',
       libur: 'bg-slate-100 text-slate-700 border-slate-200',
-      acara: 'bg-purple-100 text-purple-700 border-purple-200',
+      cuti: 'bg-indigo-100 text-indigo-700 border-indigo-200',
     }
 
     const icons = {
@@ -17,14 +17,14 @@ export default function StatusBadge({ status, jenis }) {
       izin: <Calendar size={12} />,
       sakit: <AlertCircle size={12} />,
       libur: <Calendar size={12} />,
-      acara: <Users size={12} />,
+      cuti: <Users size={12} />,
     }
 
     if (styles[jenis]) {
       return (
         <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold border ${styles[jenis]}`}>
           {icons[jenis]}
-          {jenis === 'acara' ? 'Ada Acara' : jenis.charAt(0).toUpperCase() + jenis.slice(1)}
+          {jenis === 'cuti' ? 'Cuti' : jenis.charAt(0).toUpperCase() + jenis.slice(1)}
         </span>
       )
     }
