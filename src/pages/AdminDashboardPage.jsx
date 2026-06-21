@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Search, Calendar, Download, RefreshCw, Users, CheckCircle, Clock, AlertCircle, FileSpreadsheet, FileText } from 'lucide-react'
+import { Search, Calendar, Download, RefreshCw, Users, CheckCircle, Clock, AlertCircle, FileSpreadsheet, FileText, Gift } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { getAllAbsensi, getHariLibur, addHariLibur, deleteHariLibur, updateAbsensiJenis, getAllPengajuan, updateStatusPengajuan } from '../utils/supabase'
+import { getAllAbsensi, getHariLibur, addHariLibur, deleteHariLibur, updateAbsensiJenis, getAllPengajuan, updateStatusPengajuan, getAllTabunganCuti, getRiwayatCuti, kurangiTabunganCuti } from '../utils/supabase'
 import { getTodayString, formatDateID, formatDateShortID } from '../utils/timeUtils'
 import AttendanceTable from '../components/AttendanceTable'
 import PengajuanTable from '../components/PengajuanTable'
@@ -43,7 +43,12 @@ export default function AdminDashboardPage() {
   const [filterDate, setFilterDate] = useState(today)
   const [filterSearch, setFilterSearch] = useState('')
   const [exporting, setExporting] = useState(false)
-  const [activeTab, setActiveTab] = useState('absensi') // 'absensi' | 'pengajuan'
+  const [activeTab, setActiveTab] = useState('absensi') // 'absensi' | 'pengajuan' | 'tabungan_cuti'
+
+  // State Tabungan Cuti
+  const [tabunganCutiData, setTabunganCutiData] = useState([])
+  const [riwayatCutiData, setRiwayatCutiData] = useState([])
+  const [loadingTabungan, setLoadingTabungan] = useState(false)
 
   // State Hari Libur / Piket
   const [hariLiburList, setHariLiburList] = useState([])
@@ -106,6 +111,27 @@ export default function AdminDashboardPage() {
   useEffect(() => {
     fetchHariLibur()
   }, [fetchHariLibur])
+
+  const fetchTabunganCuti = useCallback(async () => {
+    setLoadingTabungan(true)
+    try {
+      const [tabungan, riwayat] = await Promise.all([
+        getAllTabunganCuti(),
+        getRiwayatCuti(),
+      ])
+      setTabunganCutiData(tabungan || [])
+      setRiwayatCutiData(riwayat || [])
+    } catch (err) {
+      console.error(err)
+      toast.error('Gagal memuat data tabungan cuti.')
+    } finally {
+      setLoadingTabungan(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchTabunganCuti()
+  }, [fetchTabunganCuti])
 
   const handleAddLibur = async (e) => {
     e.preventDefault()
@@ -175,6 +201,23 @@ export default function AdminDashboardPage() {
         } catch (dbErr) {
           // Abaikan jika sudah ada absensi untuk hari itu (unik)
           console.warn('Absensi row sync warning:', dbErr)
+        }
+
+        // 3. Jika jenis cuti dan disetujui → kurangi saldo tabungan cuti
+        if (updated.jenis === 'cuti') {
+          try {
+            await kurangiTabunganCuti({
+              nis: updated.nis,
+              nama: updated.nama,
+              kelas: updated.kelas,
+              tanggal: updated.tanggal,
+              keterangan: 'Pengajuan cuti disetujui admin',
+            })
+            fetchTabunganCuti()
+          } catch (cutiErr) {
+            console.warn('Gagal kurangi tabungan cuti:', cutiErr)
+            toast.error(`Pengajuan disetujui, tapi gagal kurangi saldo cuti: ${cutiErr.message}`)
+          }
         }
       }
 
@@ -299,7 +342,7 @@ export default function AdminDashboardPage() {
           <div className="flex items-center gap-2">
             <button
               id="btn-refresh-data"
-              onClick={() => { fetchData(); fetchPengajuan(); }}
+              onClick={() => { fetchData(); fetchPengajuan(); fetchTabunganCuti() }}
               disabled={loading || loadingPengajuan}
               className="btn-ghost py-2 px-3 text-sm"
             >
@@ -391,6 +434,16 @@ export default function AdminDashboardPage() {
                 {pendingRequestsCount}
               </span>
             )}
+          </button>
+          <button
+            onClick={() => setActiveTab('tabungan_cuti')}
+            className={`pb-3 px-4 text-sm font-semibold border-b-2 transition-all flex items-center gap-1.5 ${
+              activeTab === 'tabungan_cuti'
+                ? 'border-kai-blue-500 text-kai-blue-600'
+                : 'border-transparent text-slate-400 hover:text-slate-600'
+            }`}
+          >
+            🏖️ Tabungan Cuti
           </button>
         </div>
 
@@ -541,8 +594,109 @@ export default function AdminDashboardPage() {
         <div className="card shadow-sm animate-fade-in p-0 overflow-hidden">
           {activeTab === 'absensi' ? (
             <AttendanceTable data={absensiData} loading={loading} onJenisChange={handleJenisChange} />
-          ) : (
+          ) : activeTab === 'pengajuan' ? (
             <PengajuanTable data={pengajuanData} loading={loadingPengajuan} onStatusChange={handleStatusPengajuanChange} />
+          ) : (
+            /* ─── Tab Tabungan Cuti ─────────────────────────────────── */
+            <div>
+              {/* Saldo per siswa */}
+              <div className="p-4 border-b border-slate-100 flex items-center justify-between">
+                <h2 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                  <Gift className="text-emerald-500" size={18} />
+                  Saldo Cuti per Siswa
+                </h2>
+                <button
+                  onClick={fetchTabunganCuti}
+                  disabled={loadingTabungan}
+                  className="btn-ghost py-1.5 px-3 text-xs"
+                >
+                  <RefreshCw size={13} className={loadingTabungan ? 'animate-spin' : ''} />
+                  Refresh
+                </button>
+              </div>
+              {loadingTabungan ? (
+                <div className="p-8 text-center text-slate-400 text-sm">Memuat...</div>
+              ) : tabunganCutiData.length === 0 ? (
+                <div className="p-8 text-center text-slate-400 text-sm">
+                  Belum ada data tabungan cuti. Siswa perlu piket di hari libur terlebih dahulu.
+                </div>
+              ) : (
+                <table className="w-full text-sm text-left">
+                  <thead className="bg-slate-50 text-slate-500 font-semibold text-xs border-b border-slate-100">
+                    <tr>
+                      <th className="px-4 py-3">Nama</th>
+                      <th className="px-4 py-3">NIS</th>
+                      <th className="px-4 py-3">Kelas</th>
+                      <th className="px-4 py-3 text-center">Saldo Cuti</th>
+                      <th className="px-4 py-3 text-right">Terakhir Update</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {tabunganCutiData.map((tc) => (
+                      <tr key={tc.id} className="hover:bg-slate-50/50">
+                        <td className="px-4 py-3 font-semibold text-slate-800">{tc.nama}</td>
+                        <td className="px-4 py-3 font-mono text-xs text-slate-600">{tc.nis}</td>
+                        <td className="px-4 py-3 text-slate-600">{tc.kelas}</td>
+                        <td className="px-4 py-3 text-center">
+                          <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold ${
+                            tc.saldo_cuti > 0
+                              ? 'bg-emerald-100 text-emerald-700'
+                              : 'bg-slate-100 text-slate-500'
+                          }`}>
+                            🏖️ {tc.saldo_cuti} jatah
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right text-xs text-slate-400">
+                          {new Date(tc.updated_at).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+
+              {/* Riwayat Cuti */}
+              <div className="p-4 border-t border-slate-100 mt-2">
+                <h2 className="text-base font-bold text-slate-800 mb-3 flex items-center gap-2">
+                  <Clock className="text-kai-blue-500" size={16} />
+                  Riwayat Pergerakan Cuti
+                </h2>
+                {riwayatCutiData.length === 0 ? (
+                  <p className="text-sm text-slate-400 text-center py-4">Belum ada riwayat cuti.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left">
+                      <thead className="bg-slate-50 text-slate-500 font-semibold text-xs border-b border-slate-100">
+                        <tr>
+                          <th className="px-4 py-2">Tanggal</th>
+                          <th className="px-4 py-2">Nama</th>
+                          <th className="px-4 py-2 text-center">Jenis</th>
+                          <th className="px-4 py-2">Keterangan</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {riwayatCutiData.map((rc) => (
+                          <tr key={rc.id} className="hover:bg-slate-50/50">
+                            <td className="px-4 py-2 font-mono text-xs text-slate-600">{rc.tanggal}</td>
+                            <td className="px-4 py-2 text-slate-800 font-medium">{rc.nama}</td>
+                            <td className="px-4 py-2 text-center">
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold ${
+                                rc.jenis === 'masuk'
+                                  ? 'bg-emerald-100 text-emerald-700'
+                                  : 'bg-red-100 text-red-600'
+                              }`}>
+                                {rc.jenis === 'masuk' ? '+ Piket Libur' : '− Cuti Dipakai'}
+                              </span>
+                            </td>
+                            <td className="px-4 py-2 text-xs text-slate-500">{rc.keterangan}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
           )}
         </div>
 

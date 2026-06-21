@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react'
-import { getSiswa, getAbsensiByNISAndDate, getPengajuanByNISAndDate } from '../utils/supabase'
+import { getSiswa, getAbsensiByNISAndDate, getPengajuanByNISAndDate, getTabunganCuti } from '../utils/supabase'
 import { getTodayString } from '../utils/timeUtils'
 
 const AppContext = createContext(null)
@@ -11,6 +11,7 @@ export function AppProvider({ children }) {
   const [siswaList, setSiswaList] = useState([])
   const [todayRecord, setTodayRecord] = useState(null) // absensi hari ini
   const [todayPengajuan, setTodayPengajuan] = useState(null) // pengajuan ketidakhadiran hari ini
+  const [tabunganCuti, setTabunganCuti] = useState(null) // { saldo_cuti, ... }
   const [loadingSiswa, setLoadingSiswa] = useState(true)
   const [isDemoMode, setIsDemoMode] = useState(false)
 
@@ -46,31 +47,45 @@ export function AppProvider({ children }) {
     load()
   }, [])
 
-  // Load today's absensi & pengajuan when session changes
+  // Load today's absensi, pengajuan & tabungan cuti when session changes
   const loadTodayData = useCallback(async () => {
     if (!session || session.role !== 'siswa') {
       setTodayRecord(null)
       setTodayPengajuan(null)
+      setTabunganCuti(null)
       return
     }
     const today = getTodayString()
     try {
-      const [record, pengajuan] = await Promise.all([
+      const [record, pengajuan, cuti] = await Promise.all([
         getAbsensiByNISAndDate(session.nis, today),
-        getPengajuanByNISAndDate(session.nis, today)
+        getPengajuanByNISAndDate(session.nis, today),
+        getTabunganCuti(session.nis),
       ])
       setTodayRecord(record)
       setTodayPengajuan(pengajuan)
+      setTabunganCuti(cuti)
     } catch (err) {
       console.error('Failed to load today data:', err)
       setTodayRecord(null)
       setTodayPengajuan(null)
+      setTabunganCuti(null)
     }
   }, [session])
 
   useEffect(() => {
     loadTodayData()
   }, [loadTodayData])
+
+  const refreshTabunganCuti = useCallback(async () => {
+    if (!session || session.role !== 'siswa') return
+    try {
+      const cuti = await getTabunganCuti(session.nis)
+      setTabunganCuti(cuti)
+    } catch (err) {
+      console.error('Failed to refresh tabungan cuti:', err)
+    }
+  }, [session])
 
   const login = (userData) => {
     setSession(userData)
@@ -81,6 +96,7 @@ export function AppProvider({ children }) {
     setSession(null)
     setTodayRecord(null)
     setTodayPengajuan(null)
+    setTabunganCuti(null)
     localStorage.removeItem(SESSION_KEY)
   }
 
@@ -93,11 +109,13 @@ export function AppProvider({ children }) {
       loadingSiswa,
       todayRecord,
       todayPengajuan,
+      tabunganCuti,
       isDemoMode,
       setIsDemoMode,
       login,
       logout,
       refreshTodayRecord,
+      refreshTabunganCuti,
     }}>
       {children}
     </AppContext.Provider>

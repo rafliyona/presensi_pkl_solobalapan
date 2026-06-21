@@ -210,3 +210,106 @@ export const updateStatusPengajuan = async (id, status_verifikasi) => {
   return data
 }
 
+// ─── TABUNGAN CUTI ────────────────────────────────────────────────────────────
+
+/**
+ * Ambil data tabungan cuti milik siswa tertentu.
+ * Mengembalikan null jika belum ada record.
+ */
+export const getTabunganCuti = async (nis) => {
+  const { data, error } = await supabase
+    .from('tabungan_cuti')
+    .select('*')
+    .eq('nis', nis)
+    .maybeSingle()
+  if (error) throw error
+  return data
+}
+
+/**
+ * Tambah +1 saldo cuti untuk siswa yang piket di hari libur.
+ * Jika belum ada record, buat baru (upsert).
+ * Juga catat ke riwayat_cuti dengan jenis 'masuk'.
+ */
+export const addTabunganCutiPiket = async ({ nis, nama, kelas, tanggal, keterangan }) => {
+  // Upsert saldo (insert jika belum ada, update jika sudah ada)
+  const { data: existing } = await supabase
+    .from('tabungan_cuti')
+    .select('id, saldo_cuti')
+    .eq('nis', nis)
+    .maybeSingle()
+
+  if (existing) {
+    const { error } = await supabase
+      .from('tabungan_cuti')
+      .update({ saldo_cuti: existing.saldo_cuti + 1, updated_at: new Date().toISOString() })
+      .eq('nis', nis)
+    if (error) throw error
+  } else {
+    const { error } = await supabase
+      .from('tabungan_cuti')
+      .insert([{ nis, nama, kelas, saldo_cuti: 1 }])
+    if (error) throw error
+  }
+
+  // Catat riwayat
+  const { error: rErr } = await supabase
+    .from('riwayat_cuti')
+    .insert([{ nis, nama, kelas, tanggal, jenis: 'masuk', keterangan: keterangan || 'Piket hari libur' }])
+  if (rErr) console.warn('Gagal catat riwayat cuti masuk:', rErr)
+}
+
+/**
+ * Kurangi -1 saldo cuti saat pengajuan cuti disetujui admin.
+ * Tidak boleh sampai negatif.
+ */
+export const kurangiTabunganCuti = async ({ nis, nama, kelas, tanggal, keterangan }) => {
+  const { data: existing } = await supabase
+    .from('tabungan_cuti')
+    .select('id, saldo_cuti')
+    .eq('nis', nis)
+    .maybeSingle()
+
+  if (!existing || existing.saldo_cuti <= 0) {
+    throw new Error('Saldo cuti tidak mencukupi')
+  }
+
+  const { error } = await supabase
+    .from('tabungan_cuti')
+    .update({ saldo_cuti: existing.saldo_cuti - 1, updated_at: new Date().toISOString() })
+    .eq('nis', nis)
+  if (error) throw error
+
+  // Catat riwayat
+  const { error: rErr } = await supabase
+    .from('riwayat_cuti')
+    .insert([{ nis, nama, kelas, tanggal, jenis: 'keluar', keterangan: keterangan || 'Pengajuan cuti disetujui' }])
+  if (rErr) console.warn('Gagal catat riwayat cuti keluar:', rErr)
+}
+
+/**
+ * Ambil semua data tabungan cuti (untuk admin dashboard).
+ */
+export const getAllTabunganCuti = async () => {
+  const { data, error } = await supabase
+    .from('tabungan_cuti')
+    .select('*')
+    .order('nama', { ascending: true })
+  if (error) throw error
+  return data
+}
+
+/**
+ * Ambil riwayat cuti untuk siswa tertentu (atau semua jika nis null).
+ */
+export const getRiwayatCuti = async (nis = null) => {
+  let query = supabase
+    .from('riwayat_cuti')
+    .select('*')
+    .order('created_at', { ascending: false })
+  if (nis) query = query.eq('nis', nis)
+  const { data, error } = await query
+  if (error) throw error
+  return data
+}
+

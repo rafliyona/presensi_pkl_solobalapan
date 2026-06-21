@@ -3,7 +3,7 @@ import { LogIn, LogOut, Clock, CheckCircle, Camera, MapPin,
          AlertCircle, Info, Zap, ZapOff } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useApp } from '../context/AppContext'
-import { supabase, createAbsensiMasuk, updateAbsensiPulang, uploadSelfie } from '../utils/supabase'
+import { supabase, createAbsensiMasuk, updateAbsensiPulang, uploadSelfie, addTabunganCutiPiket } from '../utils/supabase'
 import { getTodayString, getTimeString, getNowWIB, formatDateID,
          isLate, isPulangTime, getCountdownTo16, generateSelfieFilename } from '../utils/timeUtils'
 import CameraCapture from '../components/CameraCapture'
@@ -67,7 +67,7 @@ function CountdownBadge({ isDemoMode }) {
 }
 
 export default function AbsenPage() {
-  const { session, todayRecord, isDemoMode, setIsDemoMode, refreshTodayRecord } = useApp()
+  const { session, todayRecord, isDemoMode, setIsDemoMode, refreshTodayRecord, tabunganCuti, refreshTabunganCuti } = useApp()
 
   const [absenType, setAbsenType] = useState(null) // 'masuk' | 'pulang'
   const [step, setStep] = useState(STEPS.IDLE)
@@ -166,10 +166,35 @@ export default function AbsenPage() {
           status,
           jenis: holidayInfo ? 'piket' : 'hadir',
         })
-        toast.success(
-          `Absen masuk berhasil! Status: ${status}`,
-          { icon: status === 'Tepat Waktu' ? '✅' : '⚠️', duration: 4000 }
-        )
+
+        // Jika hari libur/piket → tambah +1 tabungan cuti
+        if (holidayInfo) {
+          try {
+            await addTabunganCutiPiket({
+              nis: session.nis,
+              nama: session.nama,
+              kelas: session.kelas,
+              tanggal,
+              keterangan: `Piket: ${holidayInfo}`,
+            })
+            await refreshTabunganCuti()
+            toast.success(
+              `Absen masuk berhasil! +1 tabungan cuti 🎉`,
+              { icon: '🗓️', duration: 5000 }
+            )
+          } catch (cutiErr) {
+            console.warn('Gagal tambah tabungan cuti:', cutiErr)
+            toast.success(
+              `Absen masuk berhasil! Status: ${status}`,
+              { icon: '✅', duration: 4000 }
+            )
+          }
+        } else {
+          toast.success(
+            `Absen masuk berhasil! Status: ${status}`,
+            { icon: status === 'Tepat Waktu' ? '✅' : '⚠️', duration: 4000 }
+          )
+        }
       } else {
         if (!todayRecord?.id) throw new Error('Data absen masuk tidak ditemukan')
         await updateAbsensiPulang(todayRecord.id, {
@@ -280,11 +305,32 @@ export default function AbsenPage() {
             <div className="w-12 h-12 kai-gradient rounded-xl flex items-center justify-center text-white font-bold text-lg shadow-sm">
               {session?.nama?.charAt(0)}
             </div>
-            <div>
+            <div className="flex-1">
               <p className="font-bold text-slate-800">{session?.nama}</p>
               <p className="text-slate-500 text-xs">NIS: {session?.nis} · {session?.kelas}</p>
             </div>
+            {/* Badge Saldo Cuti */}
+            <div className={`flex flex-col items-center rounded-xl px-3 py-2 border ${
+              (tabunganCuti?.saldo_cuti ?? 0) > 0
+                ? 'bg-emerald-50 border-emerald-200'
+                : 'bg-slate-50 border-slate-200'
+            }`}>
+              <span className="text-lg font-black leading-none">
+                {tabunganCuti?.saldo_cuti ?? 0}
+              </span>
+              <span className={`text-[10px] font-semibold mt-0.5 ${
+                (tabunganCuti?.saldo_cuti ?? 0) > 0 ? 'text-emerald-600' : 'text-slate-400'
+              }`}>
+                🏖️ Cuti
+              </span>
+            </div>
           </div>
+          {(tabunganCuti?.saldo_cuti ?? 0) > 0 && (
+            <div className="mt-3 flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2 text-xs text-emerald-700">
+              <span>🎉</span>
+              <span>Kamu punya <strong>{tabunganCuti.saldo_cuti} jatah cuti</strong> dari piket hari libur!</span>
+            </div>
+          )}
         </div>
 
         {/* Demo mode toggle */}
@@ -437,6 +483,14 @@ export default function AbsenPage() {
                     <span>📝</span>
                     Ajukan Ketidakhadiran (Izin / Sakit / Cuti / Libur)
                   </button>
+                )}
+
+                {/* Info saldo cuti habis */}
+                {!hasMasuk && (tabunganCuti?.saldo_cuti ?? 0) === 0 && (
+                  <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs text-slate-500">
+                    <span>🏖️</span>
+                    <span>Saldo cuti: <strong>0</strong> — Piket di hari libur untuk mendapatkan jatah cuti</span>
+                  </div>
                 )}
               </>
             )}
@@ -613,23 +667,27 @@ export default function AbsenPage() {
                 <label className="block text-xs font-semibold text-slate-500 mb-2">JENIS KETIDAKHADIRAN</label>
                 <div className="grid grid-cols-2 gap-2">
                   {[
-                    { val: 'izin', lbl: 'Izin', desc: 'Ada keperluan penting' },
-                    { val: 'sakit', lbl: 'Sakit', desc: 'Kondisi kurang sehat' },
-                    { val: 'cuti', lbl: 'Cuti', desc: 'Cuti / keperluan pribadi' },
-                    { val: 'piket', lbl: 'Libur', desc: 'Hari libur / non-efektif' },
+                    { val: 'izin', lbl: 'Izin', desc: 'Ada keperluan penting', emoji: '📋' },
+                    { val: 'sakit', lbl: 'Sakit', desc: 'Kondisi kurang sehat', emoji: '🤒' },
+                    { val: 'cuti', lbl: 'Cuti', desc: `Jatah cuti (${tabunganCuti?.saldo_cuti ?? 0} sisa)`, emoji: '🏖️', disabled: (tabunganCuti?.saldo_cuti ?? 0) === 0 },
+                    { val: 'piket', lbl: 'Libur', desc: 'Hari libur / non-efektif', emoji: '📅' },
                   ].map((item) => (
                     <button
                       key={item.val}
                       type="button"
-                      onClick={() => setIzinType(item.val)}
+                      onClick={() => !item.disabled && setIzinType(item.val)}
+                      disabled={item.disabled}
                       className={`p-3 rounded-xl border text-left transition-all ${
-                        izinType === item.val
-                          ? 'border-kai-blue-500 bg-kai-blue-50/50 ring-2 ring-kai-blue-500/20'
-                          : 'border-slate-200 hover:bg-slate-50'
+                        item.disabled
+                          ? 'border-slate-100 bg-slate-50 opacity-50 cursor-not-allowed'
+                          : izinType === item.val
+                            ? 'border-kai-blue-500 bg-kai-blue-50/50 ring-2 ring-kai-blue-500/20'
+                            : 'border-slate-200 hover:bg-slate-50'
                       }`}
                     >
-                      <div className="font-bold text-sm text-slate-800">{item.lbl}</div>
+                      <div className="font-bold text-sm text-slate-800">{item.emoji} {item.lbl}</div>
                       <div className="text-[10px] text-slate-400 mt-0.5">{item.desc}</div>
+                      {item.disabled && <div className="text-[10px] text-red-400 mt-0.5 font-semibold">Saldo habis</div>}
                     </button>
                   ))}
                 </div>
