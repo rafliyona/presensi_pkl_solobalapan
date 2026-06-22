@@ -56,6 +56,13 @@ export default function AdminDashboardPage() {
   const [newLiburKeterangan, setNewLiburKeterangan] = useState('')
   const [loadingLibur, setLoadingLibur] = useState(false)
 
+  // State Terminal Scan Barcode
+  const [showTerminal, setShowTerminal] = useState(false)
+  const [scanInput, setScanInput] = useState('')
+  const [scanningState, setScanningState] = useState('idle') // 'idle' | 'processing'
+  const [scanResult, setScanResult] = useState(null) // { success: boolean, message: string, siswa?: object, isMasuk?: boolean }
+  const [allSiswa, setAllSiswa] = useState([])
+
   const fetchData = useCallback(async () => {
     setLoading(true)
     try {
@@ -110,6 +117,17 @@ export default function AdminDashboardPage() {
 
   useEffect(() => {
     fetchHariLibur()
+    // Muat semua siswa untuk scanner terminal
+    const loadSiswa = async () => {
+      try {
+        const { getSiswa } = await import('../utils/supabase')
+        const data = await getSiswa()
+        setAllSiswa(data || [])
+      } catch (err) {
+        console.error('Gagal memuat list siswa:', err)
+      }
+    }
+    loadSiswa()
   }, [fetchHariLibur])
 
   const fetchTabunganCuti = useCallback(async () => {
@@ -227,6 +245,161 @@ export default function AdminDashboardPage() {
     } catch (err) {
       console.error(err)
       toast.error('Gagal memproses status pengajuan')
+    }
+  }
+
+  // Fungsi memutar suara bip sukses / gagal menggunakan HTML5 Web Audio API (tidak butuh file eksternal)
+  const playBeep = (isSuccess) => {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)()
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      
+      osc.connect(gain)
+      gain.connect(ctx.destination)
+      
+      if (isSuccess) {
+        // Nada sukses (bip ganda bernada tinggi)
+        osc.type = 'sine'
+        osc.frequency.setValueAtTime(800, ctx.currentTime)
+        gain.gain.setValueAtTime(0.1, ctx.currentTime)
+        osc.start()
+        osc.stop(ctx.currentTime + 0.1)
+        
+        const osc2 = ctx.createOscillator()
+        const gain2 = ctx.createGain()
+        osc2.connect(gain2)
+        gain2.connect(ctx.destination)
+        osc2.frequency.setValueAtTime(1000, ctx.currentTime + 0.12)
+        gain2.gain.setValueAtTime(0.1, ctx.currentTime + 0.12)
+        osc2.start(ctx.currentTime + 0.12)
+        osc2.stop(ctx.currentTime + 0.25)
+      } else {
+        // Nada gagal (buzzer rendah)
+        osc.type = 'sawtooth'
+        osc.frequency.setValueAtTime(150, ctx.currentTime)
+        gain.gain.setValueAtTime(0.15, ctx.currentTime)
+        osc.start()
+        osc.stop(ctx.currentTime + 0.45)
+      }
+    } catch (e) {
+      console.warn('Gagal memutar audio:', e)
+    }
+  }
+
+  const handleScanSubmit = async (e) => {
+    e.preventDefault()
+    const nis = scanInput.trim()
+    if (!nis) return
+
+    setScanningState('processing')
+    setScanResult(null)
+
+    try {
+      // 1. Cari siswa
+      const siswa = allSiswa.find(s => s.nis === nis)
+      if (!siswa) {
+        playBeep(false)
+        setScanResult({
+          success: false,
+          message: `NIS "${nis}" tidak ditemukan di database siswa.`
+        })
+        setScanInput('')
+        setScanningState('idle')
+        return
+      }
+
+      // 2. Ambil catatan kehadiran hari ini
+      const { getAbsensiByNISAndDate, createAbsensiMasuk, updateAbsensiPulang } = await import('../utils/supabase')
+      const todayStr = getTodayString()
+      const record = await getAbsensiByNISAndDate(nis, todayStr)
+      const now = getNowWIB()
+      const jamStr = getTimeString(now)
+
+      // Cek hari libur
+      const isHoliday = hariLiburList.some(h => h.tanggal === todayStr)
+      const holidayInfo = hariLiburList.find(h => h.tanggal === todayStr)?.keterangan || null
+
+      if (!record) {
+        // ─── PRESENSI MASUK ───
+        const { isLate } = await import('../utils/timeUtils')
+        const status = holidayInfo ? 'Tepat Waktu' : (isLate(jamStr) ? 'Terlambat' : 'Tepat Waktu')
+        const jenis = holidayInfo ? 'piket' : 'hadir'
+
+        const newRecord = await createAbsensiMasuk({
+          nis: siswa.nis,
+          nama: siswa.nama,
+          kelas: siswa.kelas,
+          tanggal: todayStr,
+          jam_masuk: jamStr,
+          foto_masuk_url: null,
+          lat_masuk: null,
+          lng_masuk: null,
+          status,
+          jenis
+        })
+
+        // Jika libur/piket, tambah saldo cuti
+        if (holidayInfo) {
+          try {
+            const { addTabunganCutiPiket } = await import('../utils/supabase')
+            await addTabunganCutiPiket({
+              nis: siswa.nis,
+              nama: siswa.nama,
+              kelas: siswa.kelas,
+              tanggal: todayStr,
+              keterangan: `Piket: ${holidayInfo}`
+            })
+            fetchTabunganCuti()
+          } catch (cutiErr) {
+            console.warn('Gagal menambah saldo cuti:', cutiErr)
+          }
+        }
+
+        playBeep(true)
+        setScanResult({
+          success: true,
+          message: `Presensi MASUK berhasil dicatat pada ${jamStr.substring(0, 5)} WIB.`,
+          siswa,
+          isMasuk: true
+        })
+        fetchData()
+      } else if (!record.jam_pulang) {
+        // ─── PRESENSI PULANG ───
+        await updateAbsensiPulang(record.id, {
+          jam_pulang: jamStr,
+          foto_pulang_url: null,
+          lat_pulang: null,
+          lng_pulang: null
+        })
+
+        playBeep(true)
+        setScanResult({
+          success: true,
+          message: `Presensi PULANG berhasil dicatat pada ${jamStr.substring(0, 5)} WIB.`,
+          siswa,
+          isMasuk: false
+        })
+        fetchData()
+      } else {
+        // ─── SUDAH ABSEN SEMUA ───
+        playBeep(false)
+        setScanResult({
+          success: false,
+          message: `${siswa.nama} sudah menyelesaikan presensi masuk (${record.jam_masuk.substring(0, 5)}) & pulang (${record.jam_pulang.substring(0, 5)}) hari ini.`,
+          siswa
+        })
+      }
+    } catch (err) {
+      console.error(err)
+      playBeep(false)
+      setScanResult({
+        success: false,
+        message: `Terjadi kesalahan database: ${err.message}`
+      })
+    } finally {
+      setScanInput('')
+      setScanningState('idle')
     }
   }
 
@@ -362,7 +535,7 @@ export default function AdminDashboardPage() {
               id="btn-export-excel"
               onClick={exportExcel}
               disabled={exporting || absensiData.length === 0}
-              className="btn-primary py-2 px-4 text-sm"
+              className="btn-primary py-2 px-4 text-sm bg-emerald-600 hover:bg-emerald-700 text-white border-none"
             >
               {exporting ? (
                 <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -370,6 +543,14 @@ export default function AdminDashboardPage() {
                 <FileSpreadsheet size={16} />
               )}
               <span>Excel</span>
+            </button>
+            <button
+              id="btn-terminal-scan"
+              onClick={() => { setShowTerminal(true); setScanResult(null); setScanInput('') }}
+              className="btn-primary py-2 px-4 text-sm bg-kai-blue-600 hover:bg-kai-blue-700 text-white border-none flex items-center gap-2 shadow-md hover:shadow-lg transition-all"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 12h10"/><path d="M12 7v10"/></svg>
+              <span>Terminal Scan QR</span>
             </button>
           </div>
         </div>
@@ -705,6 +886,116 @@ export default function AdminDashboardPage() {
           Data tersimpan di Supabase · Sistem Presensi PKL PT KAI Solo Balapan 2024/2025
         </div>
       </main>
+
+      {/* Terminal Scan QR Code Modal */}
+      {showTerminal && (
+        <div className="fixed inset-0 bg-slate-900 z-50 flex flex-col justify-between p-6 md:p-10 animate-fade-in text-white">
+          {/* Header */}
+          <div className="flex justify-between items-center border-b border-slate-800 pb-5">
+            <div className="flex items-center gap-3">
+              <div className="w-3.5 h-3.5 rounded-full bg-emerald-500 animate-pulse" />
+              <div>
+                <h2 className="text-xl font-bold tracking-tight">TERMINAL SCAN QR PRESENSI</h2>
+                <p className="text-slate-400 text-xs mt-0.5">Arahkan scanner fisik ke QR Code HP siswa</p>
+              </div>
+            </div>
+            <button
+              onClick={() => setShowTerminal(false)}
+              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 active:bg-slate-600 text-slate-300 font-semibold rounded-xl text-sm transition-colors"
+            >
+              Tutup Terminal (Esc)
+            </button>
+          </div>
+
+          {/* Form scanner input (selalu difokuskan secara dinamis) */}
+          <form onSubmit={handleScanSubmit} className="absolute opacity-0 pointer-events-none">
+            <input
+              type="text"
+              value={scanInput}
+              onChange={e => setScanInput(e.target.value)}
+              placeholder="Scan NIS..."
+              autoFocus
+              onBlur={({ target }) => {
+                // Pastikan input kembali fokus ketika kehilangan fokus secara tidak sengaja
+                setTimeout(() => target.focus(), 50)
+              }}
+            />
+          </form>
+
+          {/* Main Visual Board */}
+          <div className="flex-1 flex flex-col items-center justify-center max-w-xl mx-auto w-full py-8">
+            {scanningState === 'processing' ? (
+              <div className="text-center">
+                <div className="w-16 h-16 border-4 border-kai-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+                <p className="text-lg font-medium text-slate-300">Memproses presensi...</p>
+              </div>
+            ) : scanResult ? (
+              <div className={`w-full rounded-3xl p-8 border text-center animate-scale-in shadow-2xl ${
+                scanResult.success
+                  ? 'bg-emerald-950/40 border-emerald-500/30'
+                  : 'bg-red-950/40 border-red-500/30'
+              }`}>
+                {/* Icon Success/Failed */}
+                <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 ${
+                  scanResult.success ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
+                }`}>
+                  {scanResult.success ? (
+                    <svg xmlns="http://www.w3.org/2000/svg" width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+                  ) : (
+                    <svg xmlns="http://www.w3.org/2000/svg" width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m15 9-6 6"/><path d="m9 9 6 6"/><circle cx="12" cy="12" r="10"/></svg>
+                  )}
+                </div>
+
+                {/* Profile Card if student exists */}
+                {scanResult.siswa && (
+                  <div className="mb-4">
+                    <div className="inline-flex w-14 h-14 bg-slate-800 text-slate-200 rounded-2xl items-center justify-center font-bold text-xl mb-3 shadow-inner">
+                      {scanResult.siswa.nama.charAt(0)}
+                    </div>
+                    <h3 className="text-2xl font-black tracking-tight">{scanResult.siswa.nama}</h3>
+                    <p className="text-slate-400 text-sm mt-1">NIS: {scanResult.siswa.nis} · {scanResult.siswa.kelas}</p>
+                  </div>
+                )}
+
+                {/* Log Result Message */}
+                <div className={`mt-5 py-3 px-4 rounded-xl font-semibold text-base leading-relaxed ${
+                  scanResult.success ? 'bg-emerald-500/10 text-emerald-300' : 'bg-red-500/10 text-red-300'
+                }`}>
+                  {scanResult.message}
+                </div>
+                
+                <p className="text-[10px] text-slate-500 mt-6 tracking-wider uppercase">Siap memindai kartu berikutnya...</p>
+              </div>
+            ) : (
+              /* Idle state */
+              <div className="text-center animate-fade-in">
+                {/* QR Laser Animation */}
+                <div className="relative w-44 h-44 mx-auto mb-8 border border-dashed border-slate-700 rounded-3xl p-6 bg-slate-800/20 flex items-center justify-center">
+                  <svg className="text-slate-600" xmlns="http://www.w3.org/2000/svg" width="70" height="70" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect width="5" height="5" x="3" y="3" rx="1"/><rect width="5" height="5" x="16" y="3" rx="1"/><rect width="5" height="5" x="3" y="16" rx="1"/><path d="M21 16V10"/><path d="M21 21v-1a2 2 0 0 0-2-2h-3"/><path d="M10 21V16H4"/><path d="M10 10H4"/><path d="M16 10h5"/><rect width="1" height="1" x="7" y="7"/><rect width="1" height="1" x="16" y="7"/><rect width="1" height="1" x="7" y="16"/></svg>
+                  <div className="absolute left-4 right-4 h-0.5 bg-kai-orange-500 top-1/2 -translate-y-1/2 animate-bounce shadow-[0_0_10px_rgba(242,101,34,0.8)]" />
+                </div>
+                
+                <h3 className="text-xl font-bold tracking-tight mb-2">SIAP MEMINDAI</h3>
+                <p className="text-slate-400 text-sm max-w-sm mx-auto leading-relaxed">
+                  Terminal aktif. Aplikasi terus-menerus mendeteksi input scanner. Anda tidak perlu mengeklik apa pun untuk memulai.
+                </p>
+                <div className="mt-6 inline-flex items-center gap-2 bg-slate-800/80 border border-slate-700 rounded-xl px-4 py-2 text-xs font-mono text-slate-400">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+                  <span>Auto-Focus Focus Input Active</span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Footer panduan */}
+          <div className="border-t border-slate-800 pt-5 text-center text-xs text-slate-500 flex flex-col md:flex-row md:justify-between items-center gap-2">
+            <div>PT Kereta Api Indonesia (Persero) · Stasiun Solo Balapan</div>
+            <div className="bg-slate-800/40 border border-slate-800 px-3 py-1 rounded-lg">
+              Tips: Jika tidak merespon, klik di mana saja di area gelap layar ini.
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

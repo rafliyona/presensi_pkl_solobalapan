@@ -76,6 +76,7 @@ export default function AbsenPage() {
   const [submitting, setSubmitting] = useState(false)
   const [canPulang, setCanPulang] = useState(isPulangTime(isDemoMode))
   const [holidayInfo, setHolidayInfo] = useState(null)
+  const [showQRModal, setShowQRModal] = useState(false)
 
   // Cek hari libur saat komponen dimuat
   useEffect(() => {
@@ -331,6 +332,17 @@ export default function AbsenPage() {
               <span>Kamu punya <strong>{tabunganCuti.saldo_cuti} jatah cuti</strong> dari piket hari libur!</span>
             </div>
           )}
+          
+          {/* Tombol QR Code */}
+          <div className="mt-4 pt-3 border-t border-slate-100">
+            <button
+              onClick={() => setShowQRModal(true)}
+              className="w-full flex items-center justify-center gap-2 py-2.5 px-4 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 font-semibold text-sm rounded-xl transition-all"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect width="5" height="5" x="3" y="3" rx="1"/><rect width="5" height="5" x="16" y="3" rx="1"/><rect width="5" height="5" x="3" y="16" rx="1"/><path d="M21 16V10"/><path d="M21 21v-1a2 2 0 0 0-2-2h-3"/><path d="M10 21V16H4"/><path d="M10 10H4"/><path d="M16 10h5"/><rect width="1" height="1" x="7" y="7"/><rect width="1" height="1" x="16" y="7"/><rect width="1" height="1" x="7" y="16"/></svg>
+              Tampilkan Kartu QR Absen
+            </button>
+          </div>
         </div>
 
         {/* Demo mode toggle */}
@@ -726,6 +738,49 @@ export default function AbsenPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal QR Code Siswa */}
+      {showQRModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-xl relative animate-scale-in">
+            <button
+              onClick={() => setShowQRModal(false)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition-colors"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+            </button>
+
+            <div className="text-center pt-2">
+              <span className="inline-block bg-kai-blue-50 text-kai-blue-700 text-[10px] font-bold tracking-wider uppercase px-2.5 py-1 rounded-full mb-3">
+                KARTU PRESENSI DIGITAL
+              </span>
+              <h3 className="font-bold text-slate-800 text-lg leading-tight mb-1">{session?.nama}</h3>
+              <p className="text-slate-500 text-xs">NIS: {session?.nis} · {session?.kelas}</p>
+
+              {/* QR Container */}
+              <div className="my-6 p-4 bg-slate-50 border border-slate-100 rounded-2xl inline-block shadow-inner">
+                <img
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${session?.nis}&margin=10`}
+                  alt={`QR Code NIS ${session?.nis}`}
+                  className="w-48 h-48 mx-auto rounded-lg object-contain bg-white"
+                  loading="lazy"
+                />
+              </div>
+
+              <p className="text-slate-400 text-xs px-2 mb-2 leading-relaxed">
+                Tunjukkan QR Code ini ke Scanner Pembimbing/Admin untuk mencatat kehadiran masuk atau pulang.
+              </p>
+              
+              <button
+                onClick={() => setShowQRModal(false)}
+                className="w-full btn-primary py-2.5 text-sm mt-2"
+              >
+                Selesai
+              </button>
+            </div>
           </div>
         </div>
       )}
