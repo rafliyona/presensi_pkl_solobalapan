@@ -100,6 +100,7 @@ export default function AttendanceTable({ data, loading, onJenisChange }) {
             <th className="text-left px-4 py-3 font-semibold text-xs uppercase tracking-wide">Nama</th>
             <th className="text-left px-4 py-3 font-semibold text-xs uppercase tracking-wide">NIS</th>
             <th className="text-left px-4 py-3 font-semibold text-xs uppercase tracking-wide">Kelas</th>
+            <th className="text-center px-4 py-3 font-semibold text-xs uppercase tracking-wide">Shift</th>
             <th className="text-center px-4 py-3 font-semibold text-xs uppercase tracking-wide">Jam Masuk</th>
             <th className="text-center px-4 py-3 font-semibold text-xs uppercase tracking-wide">Foto Masuk</th>
             <th className="text-center px-4 py-3 font-semibold text-xs uppercase tracking-wide">GPS Masuk</th>
@@ -127,6 +128,19 @@ export default function AttendanceTable({ data, loading, onJenisChange }) {
               </td>
               <td className="px-4 py-3 text-slate-600 text-xs font-mono">{row.nis}</td>
               <td className="px-4 py-3 text-slate-600 text-xs">{row.kelas}</td>
+              <td className="px-4 py-3 text-center text-xs whitespace-nowrap">
+                {row.shift ? (
+                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] uppercase font-bold tracking-wide ${
+                    row.shift === 'pagi'
+                      ? 'bg-amber-100 text-amber-800'
+                      : 'bg-indigo-100 text-indigo-800'
+                  }`}>
+                    {row.shift} ({row.shift_jam_mulai?.substring(0, 5)} - {row.shift_jam_selesai?.substring(0, 5)})
+                  </span>
+                ) : (
+                  <span className="text-slate-400">—</span>
+                )}
+              </td>
               <td className="px-4 py-3 text-center">
                 <span className="text-slate-700 text-xs font-medium">
                   {formatTimeDisplay(row.jam_masuk)}

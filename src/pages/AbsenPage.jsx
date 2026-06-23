@@ -40,14 +40,15 @@ function ClockDisplay() {
   )
 }
 
-function CountdownBadge({ isDemoMode }) {
-  const [countdown, setCountdown] = useState(getCountdownTo16())
+function CountdownBadge({ isDemoMode, targetTimeStr = '16:00' }) {
+  const [countdown, setCountdown] = useState(getCountdownTo16(targetTimeStr))
 
   useEffect(() => {
     if (isDemoMode) return
-    const t = setInterval(() => setCountdown(getCountdownTo16()), 1000)
+    setCountdown(getCountdownTo16(targetTimeStr))
+    const t = setInterval(() => setCountdown(getCountdownTo16(targetTimeStr)), 1000)
     return () => clearInterval(t)
-  }, [isDemoMode])
+  }, [isDemoMode, targetTimeStr])
 
   if (isDemoMode || !countdown) return null
 
@@ -67,16 +68,49 @@ function CountdownBadge({ isDemoMode }) {
 }
 
 export default function AbsenPage() {
-  const { session, todayRecord, isDemoMode, setIsDemoMode, refreshTodayRecord, tabunganCuti, refreshTabunganCuti } = useApp()
+  const { session, todayRecord, isDemoMode, setIsDemoMode, refreshTodayRecord, tabunganCuti, refreshTabunganCuti, todayShift, tomorrowShift } = useApp()
 
   const [absenType, setAbsenType] = useState(null) // 'masuk' | 'pulang'
   const [step, setStep] = useState(STEPS.IDLE)
   const [capturedPhoto, setCapturedPhoto] = useState(null)
   const [capturedLocation, setCapturedLocation] = useState(null)
   const [submitting, setSubmitting] = useState(false)
-  const [canPulang, setCanPulang] = useState(isPulangTime(isDemoMode))
+  const [canPulang, setCanPulang] = useState(false)
   const [holidayInfo, setHolidayInfo] = useState(null)
   const [showQRModal, setShowQRModal] = useState(false)
+
+  // Form states for Tomorrow Shift (H-1)
+  const [tShiftType, setTShiftType] = useState('pagi') // 'pagi' | 'sore'
+  const [tJamMulai, setTJamMulai] = useState('08:00')
+  const [tJamSelesai, setTJamSelesai] = useState('16:00')
+  const [submittingTomorrowShift, setSubmittingTomorrowShift] = useState(false)
+
+  // Form states for Today Shift (Fallback jika lupa)
+  const [tdShiftType, setTdShiftType] = useState('pagi')
+  const [tdJamMulai, setTdJamMulai] = useState('08:00')
+  const [tdJamSelesai, setTdJamSelesai] = useState('16:00')
+  const [submittingTodayShift, setSubmittingTodayShift] = useState(false)
+
+  // Auto-set default times based on shift type
+  useEffect(() => {
+    if (tShiftType === 'pagi') {
+      setTJamMulai('08:00')
+      setTJamSelesai('16:00')
+    } else {
+      setTJamMulai('14:00')
+      setTJamSelesai('22:00')
+    }
+  }, [tShiftType])
+
+  useEffect(() => {
+    if (tdShiftType === 'pagi') {
+      setTdJamMulai('08:00')
+      setTdJamSelesai('16:00')
+    } else {
+      setTdJamMulai('14:00')
+      setTdJamSelesai('22:00')
+    }
+  }, [tdShiftType])
 
   // Cek hari libur saat komponen dimuat
   useEffect(() => {
@@ -97,11 +131,75 @@ export default function AbsenPage() {
     checkHoliday()
   }, [])
 
-  // Update canPulang every second
+  // Update canPulang based on shift_jam_selesai
   useEffect(() => {
-    const t = setInterval(() => setCanPulang(isPulangTime(isDemoMode)), 1000)
+    const limitPulang = todayShift?.jam_selesai || '16:00'
+    setCanPulang(isPulangTime(isDemoMode, limitPulang))
+    const t = setInterval(() => {
+      setCanPulang(isPulangTime(isDemoMode, limitPulang))
+    }, 1000)
     return () => clearInterval(t)
-  }, [isDemoMode])
+  }, [isDemoMode, todayShift])
+
+  const handleSaveTomorrowShift = async (e) => {
+    e.preventDefault()
+    if (!session) return
+    if (tJamSelesai <= tJamMulai) {
+      toast.error('Jam selesai harus setelah jam mulai!')
+      return
+    }
+    setSubmittingTomorrowShift(true)
+    try {
+      const { createOrUpdateRencanaShift } = await import('../utils/supabase')
+      const tomorrow = getTomorrowString()
+      await createOrUpdateRencanaShift({
+        nis: session.nis,
+        nama: session.nama,
+        kelas: session.kelas,
+        tanggal: tomorrow,
+        shift: tShiftType,
+        jam_mulai: tJamMulai,
+        jam_selesai: tJamSelesai,
+      })
+      toast.success('Shift besok berhasil disimpan!')
+      await refreshTodayRecord()
+    } catch (err) {
+      console.error(err)
+      toast.error('Gagal menyimpan shift besok.')
+    } finally {
+      setSubmittingTomorrowShift(false)
+    }
+  }
+
+  const handleSaveTodayShift = async (e) => {
+    e.preventDefault()
+    if (!session) return
+    if (tdJamSelesai <= tdJamMulai) {
+      toast.error('Jam selesai harus setelah jam mulai!')
+      return
+    }
+    setSubmittingTodayShift(true)
+    try {
+      const { createOrUpdateRencanaShift } = await import('../utils/supabase')
+      const today = getTodayString()
+      await createOrUpdateRencanaShift({
+        nis: session.nis,
+        nama: session.nama,
+        kelas: session.kelas,
+        tanggal: today,
+        shift: tdShiftType,
+        jam_mulai: tdJamMulai,
+        jam_selesai: tdJamSelesai,
+      })
+      toast.success('Shift hari ini berhasil disimpan!')
+      await refreshTodayRecord()
+    } catch (err) {
+      console.error(err)
+      toast.error('Gagal menyimpan shift hari ini.')
+    } finally {
+      setSubmittingTodayShift(false)
+    }
+  }
 
   const hasMasuk = !!todayRecord?.jam_masuk
   const hasPulang = !!todayRecord?.jam_pulang
@@ -154,7 +252,8 @@ export default function AbsenPage() {
       }
 
       if (absenType === 'masuk') {
-        const status = holidayInfo ? 'Tepat Waktu' : (isLate(jamStr) ? 'Terlambat' : 'Tepat Waktu')
+        const limitTime = todayShift?.jam_mulai || '08:00'
+        const status = holidayInfo ? 'Tepat Waktu' : (isLate(jamStr, limitTime) ? 'Terlambat' : 'Tepat Waktu')
         await createAbsensiMasuk({
           nis: session.nis,
           nama: session.nama,
@@ -166,6 +265,9 @@ export default function AbsenPage() {
           lng_masuk: capturedLocation?.lng ?? null,
           status,
           jenis: holidayInfo ? 'piket' : 'hadir',
+          shift: todayShift?.shift ?? null,
+          shift_jam_mulai: todayShift?.jam_mulai ?? null,
+          shift_jam_selesai: todayShift?.jam_selesai ?? null,
         })
 
         // Jika hari libur/piket → tambah +1 tabungan cuti
@@ -216,7 +318,7 @@ export default function AbsenPage() {
     } finally {
       setSubmitting(false)
     }
-  }, [session, absenType, capturedPhoto, capturedLocation, todayRecord, refreshTodayRecord])
+  }, [session, absenType, capturedPhoto, capturedLocation, todayRecord, refreshTodayRecord, todayShift, holidayInfo])
 
   // Determine pulang button state
   const pulangDisabled = !hasMasuk || hasPulang || !canPulang
@@ -298,6 +400,14 @@ export default function AbsenPage() {
               </div>
             )}
           </div>
+          {todayShift && (
+            <div className="mt-3 bg-kai-blue-50 border border-kai-blue-100 rounded-xl px-3.5 py-2.5 text-xs text-kai-blue-750 flex items-center justify-between animate-fade-in shadow-inner">
+              <span className="font-semibold text-kai-blue-900">Shift Aktif Hari Ini:</span>
+              <span className="font-mono bg-white px-2 py-0.5 rounded border border-kai-blue-200 uppercase font-bold text-[10px] text-kai-blue-700">
+                {todayShift.shift} ({todayShift.jam_mulai.substring(0, 5)} - {todayShift.jam_selesai.substring(0, 5)})
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Siswa info */}
@@ -345,6 +455,169 @@ export default function AbsenPage() {
           </div>
         </div>
 
+        {/* Widget Pemilihan Shift Besok (H-1) */}
+        {!tomorrowShift ? (
+          <div className="card shadow-sm border border-kai-blue-200 bg-kai-blue-50/30 animate-fade-in">
+            <h3 className="font-bold text-sm text-kai-blue-800 flex items-center gap-2 mb-3">
+              <span className="text-lg">📅</span>
+              Pilih Shift untuk Besok (H-1)
+            </h3>
+            <form onSubmit={handleSaveTomorrowShift} className="space-y-3">
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setTShiftType('pagi')}
+                  className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all text-center ${
+                    tShiftType === 'pagi'
+                      ? 'bg-kai-blue-600 border-kai-blue-600 text-white shadow'
+                      : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  🌅 Shift Pagi
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTShiftType('sore')}
+                  className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all text-center ${
+                    tShiftType === 'sore'
+                      ? 'bg-kai-blue-600 border-kai-blue-600 text-white shadow'
+                      : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  🌇 Shift Sore
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-semibold text-slate-500 mb-1">JAM MULAI</label>
+                  <input
+                    type="time"
+                    value={tJamMulai}
+                    onChange={(e) => setTJamMulai(e.target.value)}
+                    className="w-full text-xs rounded-xl border border-slate-200 p-2.5 bg-white focus:outline-none focus:ring-1 focus:ring-kai-blue-400"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-semibold text-slate-500 mb-1">JAM SELESAI</label>
+                  <input
+                    type="time"
+                    value={tJamSelesai}
+                    onChange={(e) => setTJamSelesai(e.target.value)}
+                    className="w-full text-xs rounded-xl border border-slate-200 p-2.5 bg-white focus:outline-none focus:ring-1 focus:ring-kai-blue-400"
+                    required
+                  />
+                </div>
+              </div>
+              <button
+                type="submit"
+                disabled={submittingTomorrowShift}
+                className="w-full py-2.5 bg-kai-blue-600 hover:bg-kai-blue-700 text-white text-xs font-bold rounded-xl shadow-md hover:shadow-lg transition-all"
+              >
+                {submittingTomorrowShift ? 'Menyimpan...' : 'Simpan Rencana Shift Besok'}
+              </button>
+            </form>
+          </div>
+        ) : (
+          <div className="bg-emerald-50 border border-emerald-250 text-emerald-800 rounded-2xl p-4 flex items-center justify-between text-xs animate-fade-in shadow-sm">
+            <div className="flex items-center gap-3">
+              <span className="text-xl">📅</span>
+              <div>
+                <p className="font-bold text-emerald-900">Shift Besok Sudah Dipilih</p>
+                <p className="text-slate-500 text-[10px] uppercase font-mono mt-0.5 font-bold tracking-wider">
+                  {tomorrowShift.shift} ({tomorrowShift.jam_mulai.substring(0, 5)} - {tomorrowShift.jam_selesai.substring(0, 5)})
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={async () => {
+                // To trigger edit, set states and set tomorrowShift to null temporarily
+                setTShiftType(tomorrowShift.shift)
+                setTJamMulai(tomorrowShift.jam_mulai.substring(0, 5))
+                setTJamSelesai(tomorrowShift.jam_selesai.substring(0, 5))
+                try {
+                  const { supabase } = await import('../utils/supabase')
+                  await supabase.from('rencana_shift').delete().eq('id', tomorrowShift.id)
+                  await refreshTodayRecord()
+                } catch (e) {
+                  console.warn(e)
+                }
+              }}
+              className="px-3 py-1.5 bg-white border border-emerald-300 text-emerald-700 font-bold rounded-lg text-[10px] hover:bg-emerald-100 transition-colors shadow-sm"
+            >
+              Ubah
+            </button>
+          </div>
+        )}
+
+        {/* Peringatan & Form Pemilihan Shift Hari Ini jika lupa */}
+        {!todayShift && !hasMasuk && (
+          <div className="card shadow-sm border border-rose-200 bg-rose-50/30 animate-fade-in">
+            <h3 className="font-bold text-sm text-rose-850 flex items-center gap-2 mb-1">
+              <span className="text-lg">⚠️</span>
+              Pilih Shift Hari Ini Terlebih Dahulu
+            </h3>
+            <p className="text-slate-500 text-xs mb-3">
+              Anda belum mendaftarkan shift kemarin (H-1). Silakan pilih shift hari ini untuk mengaktifkan tombol Absen Masuk.
+            </p>
+            <form onSubmit={handleSaveTodayShift} className="space-y-3">
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setTdShiftType('pagi')}
+                  className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all text-center ${
+                    tdShiftType === 'pagi'
+                      ? 'bg-rose-650 border-rose-650 text-white shadow font-bold'
+                      : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  🌅 Shift Pagi
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTdShiftType('sore')}
+                  className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all text-center ${
+                    tdShiftType === 'sore'
+                      ? 'bg-rose-650 border-rose-650 text-white shadow font-bold'
+                      : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  🌇 Shift Sore
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-semibold text-slate-500 mb-1">JAM MULAI</label>
+                  <input
+                    type="time"
+                    value={tdJamMulai}
+                    onChange={(e) => setTdJamMulai(e.target.value)}
+                    className="w-full text-xs rounded-xl border border-slate-200 p-2.5 bg-white focus:outline-none focus:ring-1 focus:ring-rose-450"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-semibold text-slate-500 mb-1">JAM SELESAI</label>
+                  <input
+                    type="time"
+                    value={tdJamSelesai}
+                    onChange={(e) => setTdJamSelesai(e.target.value)}
+                    className="w-full text-xs rounded-xl border border-slate-200 p-2.5 bg-white focus:outline-none focus:ring-1 focus:ring-rose-450"
+                    required
+                  />
+                </div>
+              </div>
+              <button
+                type="submit"
+                disabled={submittingTodayShift}
+                className="w-full py-2.5 bg-rose-650 hover:bg-rose-700 text-white text-xs font-bold rounded-xl shadow-md hover:shadow-lg transition-all"
+              >
+                {submittingTodayShift ? 'Menyimpan...' : 'Simpan Rencana Shift Hari Ini'}
+              </button>
+            </form>
+          </div>
+        )}
+
         {/* Demo mode toggle */}
         <div className={`flex items-center justify-between rounded-xl px-4 py-3 border text-sm cursor-pointer transition-colors ${
           isDemoMode
@@ -365,7 +638,7 @@ export default function AbsenPage() {
         </div>
 
         {/* Countdown to pulang */}
-        {!isDemoMode && !canPulang && <CountdownBadge isDemoMode={isDemoMode} />}
+        {!isDemoMode && !canPulang && <CountdownBadge isDemoMode={isDemoMode} targetTimeStr={todayShift?.jam_selesai || '16:00'} />}
 
         {/* Main action buttons — only show when idle */}
         {step === STEPS.IDLE && (
@@ -398,41 +671,45 @@ export default function AbsenPage() {
                 <button
                   id="btn-absen-masuk"
                   onClick={() => startAbsen('masuk')}
-                  disabled={hasMasuk}
+                  disabled={hasMasuk || !todayShift}
                   className={`relative overflow-hidden rounded-2xl p-5 text-left transition-all duration-200 ${
                     hasMasuk
                       ? 'bg-emerald-50 border-2 border-emerald-200 cursor-default'
-                      : 'bg-gradient-to-br from-kai-blue-500 to-kai-blue-700 text-white shadow-lg hover:shadow-xl hover:-translate-y-1 active:translate-y-0 border-2 border-transparent'
+                      : !todayShift
+                        ? 'bg-slate-100 border-2 border-slate-200 cursor-not-allowed opacity-75'
+                        : 'bg-gradient-to-br from-kai-blue-500 to-kai-blue-700 text-white shadow-lg hover:shadow-xl hover:-translate-y-1 active:translate-y-0 border-2 border-transparent'
                   }`}
                 >
                   <div className="absolute top-0 right-0 w-24 h-24 rounded-full bg-white/10 -translate-y-8 translate-x-8" />
                   <div className={`w-10 h-10 rounded-xl flex items-center justify-center mb-3 ${
-                    hasMasuk ? 'bg-emerald-100' : 'bg-white/20'
+                    hasMasuk ? 'bg-emerald-100' : !todayShift ? 'bg-slate-200' : 'bg-white/20'
                   }`}>
                     {hasMasuk ? (
                       <CheckCircle className="text-emerald-600" size={22} />
                     ) : (
-                      <LogIn className="text-white" size={22} />
+                      <LogIn className={!todayShift ? 'text-slate-400' : 'text-white'} size={22} />
                     )}
                   </div>
-                  <p className={`font-bold text-lg ${hasMasuk ? 'text-emerald-700' : 'text-white'}`}>
+                  <p className={`font-bold text-lg ${hasMasuk ? 'text-emerald-700' : !todayShift ? 'text-slate-500' : 'text-white'}`}>
                     {hasMasuk ? 'Sudah Absen Masuk' : 'Absen Masuk'}
                   </p>
-                  <p className={`text-sm mt-0.5 ${hasMasuk ? 'text-emerald-600' : 'text-kai-blue-100'}`}>
+                  <p className={`text-sm mt-0.5 ${hasMasuk ? 'text-emerald-600' : !todayShift ? 'text-slate-400' : 'text-kai-blue-100'}`}>
                     {hasMasuk
                       ? `Dicatat pukul ${todayRecord.jam_masuk?.substring(0, 5)} WIB`
-                      : 'Klik untuk absen kehadiran'
+                      : !todayShift
+                        ? 'Harap pilih shift hari ini terlebih dahulu'
+                        : 'Klik untuk absen kehadiran'
                     }
                   </p>
-                  <div className={`flex items-center gap-1.5 mt-3 text-xs font-medium ${
-                    hasMasuk ? 'text-emerald-600' : 'text-kai-blue-100'
-                  }`}>
-                    <Camera size={12} />
-                    <span>Foto Selfie</span>
-                    <span>+</span>
-                    <MapPin size={12} />
-                    <span>GPS</span>
-                  </div>
+                  {todayShift && !hasMasuk && (
+                    <div className="flex items-center gap-1.5 mt-3 text-xs font-medium text-kai-blue-100">
+                      <Camera size={12} />
+                      <span>Foto Selfie</span>
+                      <span>+</span>
+                      <MapPin size={12} />
+                      <span>GPS</span>
+                    </div>
+                  )}
                 </button>
 
                 {/* ABSEN PULANG */}
@@ -471,7 +748,7 @@ export default function AbsenPage() {
                       : !hasMasuk
                         ? 'Harap absen masuk terlebih dahulu'
                         : !canPulang
-                          ? 'Tersedia mulai pukul 16:00 WIB'
+                          ? `Tersedia mulai pukul ${todayShift?.jam_selesai?.substring(0, 5) || '16:00'} WIB`
                           : 'Klik untuk absen kepulangan'
                     }
                   </p>

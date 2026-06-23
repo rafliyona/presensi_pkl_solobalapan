@@ -419,6 +419,7 @@ export default function AdminDashboardPage() {
     try {
       const headers = [
         'No', 'Tanggal', 'Nama', 'NIS', 'Kelas',
+        'Shift', 'Jam Mulai Shift', 'Jam Selesai Shift',
         'Jam Masuk', 'GPS Masuk (Lat)', 'GPS Masuk (Lng)',
         'Jam Pulang', 'GPS Pulang (Lat)', 'GPS Pulang (Lng)',
         'Status'
@@ -430,6 +431,9 @@ export default function AdminDashboardPage() {
         r.nama,
         r.nis,
         r.kelas,
+        r.shift || '-',
+        r.shift_jam_mulai || '-',
+        r.shift_jam_selesai || '-',
         r.jam_masuk || '-',
         r.lat_masuk ?? '-',
         r.lng_masuk ?? '-',
@@ -470,10 +474,12 @@ export default function AdminDashboardPage() {
 
       const wsData = [
         ['No', 'Tanggal', 'Nama', 'NIS', 'Kelas',
+         'Shift', 'Jam Mulai Shift', 'Jam Selesai Shift',
          'Jam Masuk', 'GPS Masuk (Lat)', 'GPS Masuk (Lng)',
          'Jam Pulang', 'GPS Pulang (Lat)', 'GPS Pulang (Lng)', 'Status'],
         ...absensiData.map((r, i) => [
           i + 1, r.tanggal, r.nama, r.nis, r.kelas,
+          r.shift || '-', r.shift_jam_mulai || '-', r.shift_jam_selesai || '-',
           r.jam_masuk || '-', r.lat_masuk ?? '-', r.lng_masuk ?? '-',
           r.jam_pulang || '-', r.lat_pulang ?? '-', r.lng_pulang ?? '-',
           r.jam_pulang ? r.status : 'Belum Pulang',
@@ -484,6 +490,7 @@ export default function AdminDashboardPage() {
       // Column widths
       ws['!cols'] = [
         { wch: 5 }, { wch: 14 }, { wch: 30 }, { wch: 14 }, { wch: 12 },
+        { wch: 10 }, { wch: 16 }, { wch: 16 },
         { wch: 12 }, { wch: 16 }, { wch: 16 },
         { wch: 12 }, { wch: 16 }, { wch: 16 }, { wch: 14 }
       ]

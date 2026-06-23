@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react'
-import { getSiswa, getAbsensiByNISAndDate, getPengajuanByNISAndDate, getTabunganCuti } from '../utils/supabase'
-import { getTodayString } from '../utils/timeUtils'
+import { getSiswa, getAbsensiByNISAndDate, getPengajuanByNISAndDate, getTabunganCuti, getRencanaShiftByNISAndDate } from '../utils/supabase'
+import { getTodayString, getTomorrowString } from '../utils/timeUtils'
 
 const AppContext = createContext(null)
 
@@ -12,6 +12,8 @@ export function AppProvider({ children }) {
   const [todayRecord, setTodayRecord] = useState(null) // absensi hari ini
   const [todayPengajuan, setTodayPengajuan] = useState(null) // pengajuan ketidakhadiran hari ini
   const [tabunganCuti, setTabunganCuti] = useState(null) // { saldo_cuti, ... }
+  const [todayShift, setTodayShift] = useState(null) // rencana shift hari ini
+  const [tomorrowShift, setTomorrowShift] = useState(null) // rencana shift besok
   const [loadingSiswa, setLoadingSiswa] = useState(true)
   const [isDemoMode, setIsDemoMode] = useState(false)
 
@@ -47,29 +49,38 @@ export function AppProvider({ children }) {
     load()
   }, [])
 
-  // Load today's absensi, pengajuan & tabungan cuti when session changes
+  // Load today's absensi, pengajuan, tabungan cuti & shift when session changes
   const loadTodayData = useCallback(async () => {
     if (!session || session.role !== 'siswa') {
       setTodayRecord(null)
       setTodayPengajuan(null)
       setTabunganCuti(null)
+      setTodayShift(null)
+      setTomorrowShift(null)
       return
     }
     const today = getTodayString()
+    const tomorrow = getTomorrowString()
     try {
-      const [record, pengajuan, cuti] = await Promise.all([
+      const [record, pengajuan, cuti, tShift, tmShift] = await Promise.all([
         getAbsensiByNISAndDate(session.nis, today),
         getPengajuanByNISAndDate(session.nis, today),
         getTabunganCuti(session.nis),
+        getRencanaShiftByNISAndDate(session.nis, today),
+        getRencanaShiftByNISAndDate(session.nis, tomorrow),
       ])
       setTodayRecord(record)
       setTodayPengajuan(pengajuan)
       setTabunganCuti(cuti)
+      setTodayShift(tShift)
+      setTomorrowShift(tmShift)
     } catch (err) {
       console.error('Failed to load today data:', err)
       setTodayRecord(null)
       setTodayPengajuan(null)
       setTabunganCuti(null)
+      setTodayShift(null)
+      setTomorrowShift(null)
     }
   }, [session])
 
@@ -97,6 +108,8 @@ export function AppProvider({ children }) {
     setTodayRecord(null)
     setTodayPengajuan(null)
     setTabunganCuti(null)
+    setTodayShift(null)
+    setTomorrowShift(null)
     localStorage.removeItem(SESSION_KEY)
   }
 
@@ -110,6 +123,8 @@ export function AppProvider({ children }) {
       todayRecord,
       todayPengajuan,
       tabunganCuti,
+      todayShift,
+      tomorrowShift,
       isDemoMode,
       setIsDemoMode,
       login,

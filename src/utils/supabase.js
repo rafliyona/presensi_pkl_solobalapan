@@ -43,10 +43,10 @@ export const getAbsensiByNISAndDate = async (nis, tanggal) => {
   return data
 }
 
-export const createAbsensiMasuk = async ({ nis, nama, kelas, tanggal, jam_masuk, foto_masuk_url, lat_masuk, lng_masuk, status, jenis }) => {
+export const createAbsensiMasuk = async ({ nis, nama, kelas, tanggal, jam_masuk, foto_masuk_url, lat_masuk, lng_masuk, status, jenis, shift, shift_jam_mulai, shift_jam_selesai }) => {
   const { data, error } = await supabase
     .from('absensi')
-    .insert([{ nis, nama, kelas, tanggal, jam_masuk, foto_masuk_url, lat_masuk, lng_masuk, status, jenis }])
+    .insert([{ nis, nama, kelas, tanggal, jam_masuk, foto_masuk_url, lat_masuk, lng_masuk, status, jenis, shift, shift_jam_mulai, shift_jam_selesai }])
     .select()
     .single()
   if (error) throw error
@@ -312,4 +312,49 @@ export const getRiwayatCuti = async (nis = null) => {
   if (error) throw error
   return data
 }
+
+// ─── RENCANA SHIFT ────────────────────────────────────────────────────────────
+
+export const getRencanaShiftByNISAndDate = async (nis, tanggal) => {
+  const { data, error } = await supabase
+    .from('rencana_shift')
+    .select('*')
+    .eq('nis', nis)
+    .eq('tanggal', tanggal)
+    .maybeSingle()
+  if (error) throw error
+  return data
+}
+
+export const createOrUpdateRencanaShift = async ({ nis, nama, kelas, tanggal, shift, jam_mulai, jam_selesai }) => {
+  const { data, error } = await supabase
+    .from('rencana_shift')
+    .upsert(
+      [{ nis, nama, kelas, tanggal, shift, jam_mulai, jam_selesai }],
+      { onConflict: 'nis,tanggal' }
+    )
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+
+export const getAllRencanaShift = async (filters = {}) => {
+  let query = supabase
+    .from('rencana_shift')
+    .select('*')
+    .order('tanggal', { ascending: false })
+
+  if (filters.tanggal) {
+    query = query.eq('tanggal', filters.tanggal)
+  }
+  if (filters.search) {
+    query = query.or(`nama.ilike.%${filters.search}%,nis.ilike.%${filters.search}%`)
+  }
+
+  const { data, error } = await query
+  if (error) throw error
+  return data
+}
+
 

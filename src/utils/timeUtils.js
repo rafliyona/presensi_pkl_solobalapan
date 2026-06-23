@@ -23,6 +23,18 @@ export const getTodayString = () => {
 }
 
 /**
+ * Get tomorrow's date string: YYYY-MM-DD
+ */
+export const getTomorrowString = () => {
+  const tomorrow = getNowWIB()
+  tomorrow.setDate(tomorrow.getDate() + 1)
+  const y = tomorrow.getFullYear()
+  const m = String(tomorrow.getMonth() + 1).padStart(2, '0')
+  const d = String(tomorrow.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+/**
  * Get current time string: HH:MM:SS
  */
 export const getTimeString = (date) => {
@@ -66,31 +78,35 @@ export const formatDateShortID = (dateStr) => {
  * Check if the given time string (HH:MM:SS) is late (after 08:00)
  * DEMO mode: pass demoMode=true to always return false (always "on time")
  */
-export const isLate = (timeStr) => {
+export const isLate = (timeStr, targetTimeStr = '08:00') => {
   if (!timeStr) return false
-  const [h, m] = timeStr.split(':').map(Number)
-  // Late if after 08:00
-  return h > 8 || (h === 8 && m > 0)
+  const [h, m, s = 0] = timeStr.split(':').map(Number)
+  const [th, tm, ts = 0] = targetTimeStr.split(':').map(Number)
+  return (h * 3600 + m * 60 + s) > (th * 3600 + tm * 60 + ts)
 }
 
 /**
- * Check if current time allows pulang (>= 16:00)
+ * Check if current time allows pulang (>= targetTimeStr)
  * In demo mode this always returns true
  */
-export const isPulangTime = (isDemoMode = false) => {
+export const isPulangTime = (isDemoMode = false, targetTimeStr = '16:00') => {
   if (isDemoMode) return true
   const now = getNowWIB()
-  return now.getHours() >= 16
+  const [th, tm = 0] = targetTimeStr.split(':').map(Number)
+  const nowMinutes = now.getHours() * 60 + now.getMinutes()
+  const targetMinutes = th * 60 + tm
+  return nowMinutes >= targetMinutes
 }
 
 /**
- * Get countdown to 16:00
- * returns { hours, minutes, seconds } or null if already past 16:00
+ * Get countdown to a target time
+ * returns { hours, minutes, seconds } or null if already past
  */
-export const getCountdownTo16 = () => {
+export const getCountdownTo16 = (targetTimeStr = '16:00') => {
   const now = getNowWIB()
   const target = new Date(now)
-  target.setHours(16, 0, 0, 0)
+  const [th, tm = 0] = targetTimeStr.split(':').map(Number)
+  target.setHours(th, tm, 0, 0)
   const diff = target - now
   if (diff <= 0) return null
   const hours = Math.floor(diff / 3600000)
